@@ -172,6 +172,10 @@ function downloadJSON(filename: string, data: unknown) {
   URL.revokeObjectURL(url);
 }
 
+function isUUID(v?: string): boolean {
+  return !!v && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(v);
+}
+
 // Calcula valor efectivo de una stat aplicando bonificaciones del personaje
 function calcEffectiveStat(c: Character, key: StatKey, bonuses: Bonus[]): number {
   const base = c.stats[key]?.valor ?? 0;
