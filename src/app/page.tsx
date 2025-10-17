@@ -1,6 +1,5 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
@@ -12,6 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Plus, Save, Download, Trash2, ChevronRight, Link2, Wand2, Settings2, Minus } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
+
 
 /**********************
  * Types & Constants  *
@@ -750,27 +751,47 @@ export default function MiniApp() {
   const [search, setSearch] = useState("");
   const [editingCharId, setEditingCharId] = useState<string | null>(null);
 
-  
+  const loadData = useCallback(async () => {
+  const { data: skills } = await supabase.from("skills").select("*");
+  const { data: characters } = await supabase.from("characters").select("*");
+  const { data: evo_links } = await supabase.from("evo_links").select("*");
+  const { data: bonuses } = await supabase.from("bonuses").select("*");
+  const { data: extra_stats } = await supabase.from("extra_stats").select("*");
+
+  setStore({
+    skills: (skills ?? []).map((s: any) => ({
+      id: s.id,
+      nombre: s.nombre,
+      nivel: s.nivel,
+      nivelMax: s.nivelMax,
+      incremento: s.incremento,
+      clase: s.clase,
+      tier: s.tier,
+      definicion: s.definicion,
+      personajes: Array.isArray(s.personajes) ? s.personajes : [],
+    })),
+    characters: (characters ?? []) as Character[],
+    evoLinks:
+      (evo_links ?? []).map((e: any) => ({ from: e.from_skill, to: e.to_skill })) ?? [],
+    bonuses: (bonuses ?? []).map((b: any) => ({
+      id: b.id,
+      nombre: b.nombre,
+      descripcion: b.descripcion,
+      objetivo: b.objetivo,
+      modo: b.modo,
+      cantidadPorNivel: b.cantidad_por_nivel,
+      nivelMax: b.nivel_max,
+    })) as Bonus[],
+    extraStats: (extra_stats ?? []).map((e: any) => e.name) ?? [],
+  });
+}, [setStore]);
+
+
   useEffect(() => {
-  async function loadData() {
-    const { data: skills } = await supabase.from("skills").select("*");
-    const { data: characters } = await supabase.from("characters").select("*");
-    const { data: evo_links } = await supabase.from("evo_links").select("*");
-    const { data: bonuses } = await supabase.from("bonuses").select("*");
-    const { data: extra_stats } = await supabase.from("extra_stats").select("*");
+    loadData();
+  },  [loadData]);
 
-    setStore({
-      skills: skills ?? [],
-      characters: characters ?? [],
-      evoLinks: evo_links?.map((e) => ({ from: e.from, to: e.to })) ?? [],
-      bonuses: bonuses ?? [],
-      extraStats: extra_stats?.map((e) => e.name) ?? []
-    });
-  }
 
-  loadData();
-}, []);
-  
   const skillsById = useMemo(() => Object.fromEntries(store.skills.map(s => [s.id, s])), [store.skills]);
   const statOptions = useMemo(() => Array.from(new Set<string>([...DEFAULT_STATS as any, ...store.extraStats])), [store.extraStats]);
 
@@ -797,34 +818,34 @@ export default function MiniApp() {
 
   // CRUD helpers: Skills
   async function upsertSkill(s: Skill) {
-  const payload = { ...s };
-  if (!payload.id) delete (payload as any).id;
+    try {
+    // Si el id no es UUID (ej: "skill_abcd123"), generamos uno real para Postgres
+    const id = isUUID(s.id) ? s.id : crypto.randomUUID();
 
-  const { data, error } = await supabase.from("skills").upsert(payload).select().single();
-  if (error) {
-    alert("Error guardando habilidad: " + error.message);
-    return;
-  }
+    const { error } = await supabase
+      .from("skills")
+      .upsert({
+        id,
+        nombre: s.nombre,
+        nivel: s.nivel,
+        nivelMax: s.nivelMax,
+        incremento: s.incremento,
+        clase: s.clase,
+        tier: s.tier,
+        definicion: s.definicion,
+        personajes: s.personajes ?? [],
+      });
 
-  setStore(prev => {
-    const exists = prev.skills.some(x => x.id === data!.id);
-    const skills = exists
-      ? prev.skills.map(x => x.id === data!.id ? (data as Skill) : x)
-      : [...prev.skills, data as Skill];
+    if (error) {
+      alert("Error guardando habilidad: " + error.message);
+      return;
+    }
 
-    const characters = prev.characters.map(ch => {
-      const has = ch.habilidades.some(h => h.skillId === data!.id);
-      if ((data as Skill).personajes.includes(ch.id) && !has) {
-        return { ...ch, habilidades: [...ch.habilidades, { skillId: (data as Skill).id, nivel: (data as Skill).nivel }] };
-      }
-      if (!(data as Skill).personajes.includes(ch.id) && has) {
-        return { ...ch, habilidades: ch.habilidades.filter(h => h.skillId !== (data as Skill).id) };
-      }
-      return ch;
-    });
-
-    return { ...prev, skills, characters };
-  });
+    // refrescamos desde la BD para que quede sincronizado
+    await loadData();
+  } catch (err: any) {
+    alert("Error guardando habilidad: " + (err?.message ?? String(err)));
+  }
 }
 
   async function deleteSkill(id: string) {
