@@ -780,6 +780,9 @@ export default function MiniApp() {
   const [tab, setTab] = useState("skills");
   const [search, setSearch] = useState("");
   const [editingCharId, setEditingCharId] = useState<string | null>(null);
+  const [editingBonusId, setEditingBonusId] = useState<string | null>(null);
+  const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
+
 
   const loadData = useCallback(async () => {
   const { data: skills } = await supabase.from("skills").select("*");
@@ -1034,6 +1037,14 @@ async function deleteBonus(id: string) {
 
   // Character being edited
   const editingChar = useMemo(() => store.characters.find(c => c.id === editingCharId) || undefined, [store.characters, editingCharId]);
+  const editingBonus = useMemo(
+  () => store.bonuses.find(b => b.id === editingBonusId) || undefined,
+  [store.bonuses, editingBonusId]
+);
+  const editingSkill = useMemo(
+  () => store.skills.find(s => s.id === editingSkillId) || undefined,
+  [store.skills, editingSkillId]
+);
 
   async function addEvoLink(a: string, b: string) {
   const { error } = await supabase.from("evo_links").upsert({ from_skill: a, to_skill: b });
@@ -1086,27 +1097,40 @@ async function deleteBonus(id: string) {
         {/* SKILLS */}
         {tab === "skills" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Section title="Nueva / Editar Habilidad" actions={<></>}>
-              <SkillForm
-                characters={store.characters}
-                onSubmit={(s) => upsertSkill(s)}
-              />
+            <Section
+                  title={editingSkill ? `Editar Habilidad — ${editingSkill.nombre}` : "Nueva / Editar Habilidad"}
+                    actions={
+                      editingSkill && (
+                        <Button variant="outline" onClick={() => setEditingSkillId(null)}>
+                        Cancelar
+                        </Button>
+                      )
+                    }
+            >
+                <SkillForm
+                  initial={editingSkill}                
+                  characters={store.characters}
+                  onSubmit={async (s) => {
+                  await upsertSkill(s);                
+                  setEditingSkillId(null);             
+                  await loadData();                    
+                  }}
+                />
             </Section>
+
             <Section title={`Listado de Habilidades (${filteredSkills.length})`} actions={<></>}>
               <div className="text-xs opacity-70 mb-2">Campos: Nivel, Nivel Máx, Incremento (porcentaje o unidad), Clase (Activa/Pasiva/Crecimiento), Tier (F → SSS±), Definición, Personajes.</div>
               <div className="divide-y">
                 {filteredSkills.length === 0 && <div className="text-sm opacity-70">No hay habilidades aún.</div>}
                 {filteredSkills.map((s) => (
-                  <SkillRow key={s.id} s={s}
-                    onEdit={() => {
-                      const newName = prompt("Editar nombre de habilidad:", s.nombre);
-                      if (newName === null) return;
-                      upsertSkill({ ...s, nombre: newName });
-                    }}
+                  <SkillRow
+                    key={s.id}
+                    s={s}
+                    onEdit={() => setEditingSkillId(s.id)}
                     onDelete={() => deleteSkill(s.id)}
                   />
-                ))}
-              </div>
+              ))}
+          </div>
             </Section>
             <Section title="Editor de Síntesis/Evolución" actions={<></>}>
               <EvolutionEditor
@@ -1173,20 +1197,35 @@ async function deleteBonus(id: string) {
         {/* BONUSES */}
         {tab === "bonos" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Section title="Nueva / Editar Bonificación" actions={<></>}>
-              <BonusForm statOptions={statOptions} onSubmit={upsertBonus} />
-            </Section>
+            <Section
+              title={editingBonus ? `Editar Bonificacion - ${editingBonus.nombre}` : "Nueva / Editar Bonificacion"}
+                actions={
+                  editingBonus && (
+                <Button variant="outline" onClick={() => setEditingBonusId(null)}>
+                Cancelar
+              </Button>
+            )
+          }
+          >
+            <BonusForm
+             initial={editingBonus}
+              statOptions={statOptions}
+       onSubmit={async (b) => {
+          await upsertBonus(b);
+          setEditingBonusId(null);
+        }}
+       />
+          </Section>
+
             <Section title={`Listado de Bonificaciones (${filteredBonuses.length})`} actions={<></>}>
               <div className="divide-y">
                 {filteredBonuses.length === 0 && <div className="text-sm opacity-70">No hay bonificaciones aún.</div>}
                 {filteredBonuses.map((b) => (
-                  <BonusRow key={b.id} b={b}
-                    onEdit={() => {
-                      const name = prompt("Editar nombre de bonificación:", b.nombre);
-                      if (name === null) return;
-                      upsertBonus({ ...b, nombre: name });
-                    }}
-                    onDelete={() => deleteBonus(b.id)}
+                  <BonusRow
+                      key={b.id}
+                      b={b}
+                      onEdit={() => setEditingBonusId(b.id)}   // Abre edición en el formulario
+                      onDelete={() => deleteBonus(b.id)}
                   />
                 ))}
               </div>
