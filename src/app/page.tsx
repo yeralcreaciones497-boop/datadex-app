@@ -862,25 +862,32 @@ export default function MiniApp() {
 
   // CRUD helpers: Characters
   async function upsertCharacter(c: Character) {
-  const payload = { ...c }; if (!payload.id) delete (payload as any).id;
-  const { data, error } = await supabase.from("characters").upsert(payload).select().single();
-  if (error) return alert("Error guardando personaje: " + error.message);
+  try {
+    // el id original puede ser "char_abcd123", así que convertimos a UUID
+    const id = isUUID(c.id) ? c.id : crypto.randomUUID();
 
-  setStore(prev => {
-    const exists = prev.characters.some(x => x.id === data!.id);
-    const characters = exists ? prev.characters.map(x => x.id === data!.id ? (data as Character) : x)
-                              : [...prev.characters, data as Character];
-    const skills = prev.skills.map(s => {
-      const hasByChar = !!(data as Character).habilidades.find(h => h.skillId === s.id);
-      const already = s.personajes.includes((data as Character).id);
-      if (hasByChar && !already) return { ...s, personajes: [...s.personajes, (data as Character).id] };
-      if (!hasByChar && already) return { ...s, personajes: s.personajes.filter(pid => pid !== (data as Character).id) };
-      return s;
+    const { error } = await supabase.from("characters").upsert({
+      id,
+      nombre: c.nombre,
+      especie: c.especie,
+      descripcion: c.descripcion,
+      nivel: c.nivel,
+      stats: c.stats ?? {},
+      habilidades: c.habilidades ?? [],
+      bonos: c.bonos ?? []
     });
-    return { ...prev, characters, skills };
-  });
-  setEditingCharId(null);
+
+    if (error) {
+      alert("Error guardando personaje: " + error.message);
+      return;
+    }
+
+    await loadData(); // refresca los datos
+  } catch (err: any) {
+    alert("Error guardando personaje: " + (err?.message ?? String(err)));
+  }
 }
+
 async function deleteCharacter(id: string) {
   const { error } = await supabase.from("characters").delete().eq("id", id);
   if (error) return alert("Error eliminando personaje: " + error.message);
