@@ -927,25 +927,51 @@ async function deleteCharacter(id: string) {
     skills: prev.skills.map(s => ({ ...s, personajes: s.personajes.filter(pid => pid !== id) })),
   }));
 }
-  async function upsertBonus(b: Bonus) {
-    const payload = { ...b }; if (!payload.id) delete (payload as any).id;
-    const { data, error } = await supabase.from("bonuses").upsert({
-      id: payload.id, nombre: payload.nombre, descripcion: payload.descripcion,
-      objetivo: payload.objetivo, modo: payload.modo,
-      cantidad_por_nivel: payload.cantidadPorNivel, nivel_max: payload.nivelMax,
-    }).select().single();
+async function upsertBonus(b: Bonus) {
+  try {
+    // ✅ Igual que en skills/characters: garantizar UUID válido
+    const id = isUUID(b.id) ? b.id : crypto.randomUUID();
+
+    const { data, error } = await supabase
+      .from("bonuses")
+      .upsert({
+        id,
+        nombre: b.nombre,
+        descripcion: b.descripcion,
+        objetivo: b.objetivo,
+        modo: b.modo,
+        cantidad_por_nivel: b.cantidadPorNivel,
+        nivel_max: b.nivelMax,
+        // Si más adelante usas multi-objetivo, aquí agregarías `objetivos`
+      })
+      .select()
+      .single();
+
     if (error) return alert("Error guardando bonificación: " + error.message);
+
     const saved: Bonus = {
-      id: data!.id, nombre: data!.nombre, descripcion: data!.descripcion,
-      objetivo: data!.objetivo, modo: data!.modo,
-      cantidadPorNivel: data!.cantidad_por_nivel, nivelMax: data!.nivel_max,
+      id: data!.id,
+      nombre: data!.nombre,
+      descripcion: data!.descripcion,
+      objetivo: data!.objetivo,
+      modo: data!.modo,
+      cantidadPorNivel: data!.cantidad_por_nivel,
+      nivelMax: data!.nivel_max,
+      // objetivos: data!.objetivos ?? undefined  // (cuando lo implementes)
     };
+
     setStore(prev => {
       const exists = prev.bonuses.some(x => x.id === saved.id);
-      const bonuses = exists ? prev.bonuses.map(x => x.id === saved.id ? saved : x) : [...prev.bonuses, saved];
+      const bonuses = exists
+        ? prev.bonuses.map(x => (x.id === saved.id ? saved : x))
+        : [...prev.bonuses, saved];
       return { ...prev, bonuses };
     });
+  } catch (err: any) {
+    alert("Error guardando bonificación: " + (err?.message ?? String(err)));
+  }
 }
+
 async function deleteBonus(id: string) {
   const { error } = await supabase.from("bonuses").delete().eq("id", id);
   if (error) return alert("Error eliminando bonificación: " + error.message);
@@ -1000,8 +1026,8 @@ async function deleteBonus(id: string) {
     const sk1: Skill = { id: uid("skill"), nombre: "Asedio Carmesí del Dragón", nivel: 1, nivelMax: 5, incremento: "+120% daño / +30% alcance", clase: "Activa", tier: "S", definicion: "Estallido ofensivo a gran escala.", personajes: [] };
     const sk2: Skill = { id: uid("skill"), nombre: "Marca de Protección", nivel: 1, nivelMax: 3, incremento: "+25% mitigación", clase: "Pasiva", tier: "A+", definicion: "Protege aliados cercanos.", personajes: [] };
     const sk3: Skill = { id: uid("skill"), nombre: "Paso de la Bestia Fantasma", nivel: 1, nivelMax: 5, incremento: "+40% movilidad", clase: "Crecimiento", tier: "S-", definicion: "Movilidad y post-ataque.", personajes: [] };
-    const b1: Bonus = { id: uid("bonus"), nombre: "Entrenamiento Fuerza", descripcion: "+5 puntos de Fuerza por nivel", objetivo: "Fuerza", modo: "Puntos", cantidadPorNivel: 5, nivelMax: 10 };
-    const b2: Bonus = { id: uid("bonus"), nombre: "Bendición Vital", descripcion: "+2% Vitalidad por nivel", objetivo: "Vitalidad", modo: "Porcentaje", cantidadPorNivel: 2, nivelMax: 20 };
+    const b1: Bonus = { id: crypto.randomUUID(), nombre: "Entrenamiento Fuerza", descripcion: "+5 puntos de Fuerza por nivel", objetivo: "Fuerza", modo: "Puntos", cantidadPorNivel: 5, nivelMax: 10 };
+    const b2: Bonus = { id: crypto.randomUUID(), nombre: "Bendición Vital", descripcion: "+2% Vitalidad por nivel", objetivo: "Vitalidad", modo: "Porcentaje", cantidadPorNivel: 2, nivelMax: 20 };
     const ch1: Character = { id: uid("char"), nombre: "Naruto", especie: "Dragón-Uzumaki", descripcion: "Líder de Uzushiogakure.", nivel: 1, stats: { Fuerza:{ valor:100, rango: classifyStat(100).sub }, Resistencia:{ valor:100, rango: classifyStat(100).sub }, Destreza:{ valor:100, rango: classifyStat(100).sub }, Mente:{ valor:150, rango: classifyStat(150).sub }, Vitalidad:{ valor:100, rango: classifyStat(100).sub } }, habilidades: [], bonos: [] };
     setStore({ skills: [sk1, sk2, sk3], characters: [ch1], evoLinks: [{ from: sk1.id, to: sk3.id }], bonuses: [b1,b2], extraStats: [] });
   }
