@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Plus, Save, Download, Trash2, ChevronRight, Link2, Wand2, Settings2, Minus } from "lucide-react";
+import { supabase } from "@/lib/supabaseClient";
 
 /**********************
  * Types & Constants  *
@@ -160,21 +161,6 @@ const LS_KEY = "miniapp-habilidades-personajes-v1";
 
 function uid(prefix = "id"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
-}
-
-function loadStore(): Store {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return EMPTY_STORE;
-    const parsed = JSON.parse(raw);
-    return { ...EMPTY_STORE, ...parsed } as Store;
-  } catch {
-    return EMPTY_STORE;
-  }
-}
-
-function saveStore(data: Store) {
-  localStorage.setItem(LS_KEY, JSON.stringify(data));
 }
 
 function downloadJSON(filename: string, data: unknown) {
@@ -760,12 +746,29 @@ export default function MiniApp() {
   const [search, setSearch] = useState("");
   const [editingCharId, setEditingCharId] = useState<string | null>(null);
 
+  
+  useEffect(() => {
+  async function loadData() {
+    const { data: skills } = await supabase.from("skills").select("*");
+    const { data: characters } = await supabase.from("characters").select("*");
+    const { data: evo_links } = await supabase.from("evo_links").select("*");
+    const { data: bonuses } = await supabase.from("bonuses").select("*");
+    const { data: extra_stats } = await supabase.from("extra_stats").select("*");
+
+    setStore({
+      skills: skills ?? [],
+      characters: characters ?? [],
+      evoLinks: evo_links?.map((e) => ({ from: e.from, to: e.to })) ?? [],
+      bonuses: bonuses ?? [],
+      extraStats: extra_stats?.map((e) => e.name) ?? []
+    });
+  }
+
+  loadData();
+}, []);
+  
   const skillsById = useMemo(() => Object.fromEntries(store.skills.map(s => [s.id, s])), [store.skills]);
-
   const statOptions = useMemo(() => Array.from(new Set<string>([...DEFAULT_STATS as any, ...store.extraStats])), [store.extraStats]);
-
-  useEffect(() => { setStore(loadStore()); }, []);
-  useEffect(() => { saveStore(store); }, [store]);
 
   // Import/Export
   function handleExport() {
@@ -789,84 +792,114 @@ export default function MiniApp() {
   }
 
   // CRUD helpers: Skills
-  function upsertSkill(s: Skill) {
-    setStore((prev) => {
-      const exists = prev.skills.some(x => x.id === s.id);
-      const skills = exists ? prev.skills.map(x => x.id === s.id ? s : x) : [...prev.skills, s];
-      // mantener consistencia personaje ↔ habilidad
-      const characters = prev.characters.map(ch => {
-        const has = ch.habilidades.some(h => h.skillId === s.id);
-        if (s.personajes.includes(ch.id) && !has) {
-          return { ...ch, habilidades: [...ch.habilidades, { skillId: s.id, nivel: s.nivel }] };
-        }
-        if (!s.personajes.includes(ch.id) && has) {
-          return { ...ch, habilidades: ch.habilidades.filter(h => h.skillId !== s.id) };
-        }
-        return ch;
-      });
-      return { ...prev, skills, characters };
-    });
+  async function upsertSkill(s: Skill) {
+  const payload = { ...s };
+  if (!payload.id) delete (payload as any).id;
+
+  const { data, error } = await supabase.from("skills").upsert(payload).select().single();
+  if (error) {
+    alert("Error guardando habilidad: " + error.message);
+    return;
   }
 
-  function deleteSkill(id: string) {
-    setStore((prev) => ({
-      ...prev,
-      skills: prev.skills.filter(s => s.id !== id),
-      characters: prev.characters.map(ch => ({ ...ch, habilidades: ch.habilidades.filter(h => h.skillId !== id) })),
-      evoLinks: prev.evoLinks.filter(l => l.from !== id && l.to !== id),
-    }));
-  }
+  setStore(prev => {
+    const exists = prev.skills.some(x => x.id === data!.id);
+    const skills = exists
+      ? prev.skills.map(x => x.id === data!.id ? (data as Skill) : x)
+      : [...prev.skills, data as Skill];
+
+    const characters = prev.characters.map(ch => {
+      const has = ch.habilidades.some(h => h.skillId === data!.id);
+      if ((data as Skill).personajes.includes(ch.id) && !has) {
+        return { ...ch, habilidades: [...ch.habilidades, { skillId: (data as Skill).id, nivel: (data as Skill).nivel }] };
+      }
+      if (!(data as Skill).personajes.includes(ch.id) && has) {
+        return { ...ch, habilidades: ch.habilidades.filter(h => h.skillId !== (data as Skill).id) };
+      }
+      return ch;
+    });
+
+    return { ...prev, skills, characters };
+  });
+}
+
+  async function deleteSkill(id: string) {
+  const { error } = await supabase.from("skills").delete().eq("id", id);
+  if (error) { alert("Error eliminando habilidad: " + error.message); return; }
+
+  setStore(prev => ({
+    ...prev,
+    skills: prev.skills.filter(s => s.id !== id),
+    characters: prev.characters.map(ch => ({ ...ch, habilidades: ch.habilidades.filter(h => h.skillId !== id) })),
+    evoLinks: prev.evoLinks.filter(l => l.from !== id && l.to !== id),
+  }));
+}
 
   // CRUD helpers: Characters
-  function upsertCharacter(c: Character) {
-    setStore((prev) => {
-      const exists = prev.characters.some(x => x.id === c.id);
-      const characters = exists ? prev.characters.map(x => x.id === c.id ? c : x) : [...prev.characters, c];
-      // reflejar posesión de habilidad en la entidad habilidad
-      const skills = prev.skills.map(s => {
-        const hasByChar = !!c.habilidades.find(h => h.skillId === s.id);
-        const already = s.personajes.includes(c.id);
-        if (hasByChar && !already) return { ...s, personajes: [...s.personajes, c.id] };
-        if (!hasByChar && already) return { ...s, personajes: s.personajes.filter(pid => pid !== c.id) };
-        return s;
-      });
-      return { ...prev, characters, skills };
+  async function upsertCharacter(c: Character) {
+  const payload = { ...c }; if (!payload.id) delete (payload as any).id;
+  const { data, error } = await supabase.from("characters").upsert(payload).select().single();
+  if (error) return alert("Error guardando personaje: " + error.message);
+
+  setStore(prev => {
+    const exists = prev.characters.some(x => x.id === data!.id);
+    const characters = exists ? prev.characters.map(x => x.id === data!.id ? (data as Character) : x)
+                              : [...prev.characters, data as Character];
+    const skills = prev.skills.map(s => {
+      const hasByChar = !!(data as Character).habilidades.find(h => h.skillId === s.id);
+      const already = s.personajes.includes((data as Character).id);
+      if (hasByChar && !already) return { ...s, personajes: [...s.personajes, (data as Character).id] };
+      if (!hasByChar && already) return { ...s, personajes: s.personajes.filter(pid => pid !== (data as Character).id) };
+      return s;
     });
-    setEditingCharId(null);
-  }
-
-  function deleteCharacter(id: string) {
-    setStore((prev) => ({
-      ...prev,
-      characters: prev.characters.filter(c => c.id !== id),
-      skills: prev.skills.map(s => ({ ...s, personajes: s.personajes.filter(pid => pid !== id) })),
-    }));
-  }
-
-  // CRUD helpers: Bonuses
-  function upsertBonus(b: Bonus) {
+    return { ...prev, characters, skills };
+  });
+  setEditingCharId(null);
+}
+async function deleteCharacter(id: string) {
+  const { error } = await supabase.from("characters").delete().eq("id", id);
+  if (error) return alert("Error eliminando personaje: " + error.message);
+  setStore(prev => ({
+    ...prev,
+    characters: prev.characters.filter(c => c.id !== id),
+    skills: prev.skills.map(s => ({ ...s, personajes: s.personajes.filter(pid => pid !== id) })),
+  }));
+}
+  async function upsertBonus(b: Bonus) {
+    const payload = { ...b }; if (!payload.id) delete (payload as any).id;
+    const { data, error } = await supabase.from("bonuses").upsert({
+      id: payload.id, nombre: payload.nombre, descripcion: payload.descripcion,
+      objetivo: payload.objetivo, modo: payload.modo,
+      cantidad_por_nivel: payload.cantidadPorNivel, nivel_max: payload.nivelMax,
+    }).select().single();
+    if (error) return alert("Error guardando bonificación: " + error.message);
+    const saved: Bonus = {
+      id: data!.id, nombre: data!.nombre, descripcion: data!.descripcion,
+      objetivo: data!.objetivo, modo: data!.modo,
+      cantidadPorNivel: data!.cantidad_por_nivel, nivelMax: data!.nivel_max,
+    };
     setStore(prev => {
-      const exists = prev.bonuses.some(x => x.id === b.id);
-      const bonuses = exists ? prev.bonuses.map(x => x.id === b.id ? b : x) : [...prev.bonuses, b];
+      const exists = prev.bonuses.some(x => x.id === saved.id);
+      const bonuses = exists ? prev.bonuses.map(x => x.id === saved.id ? saved : x) : [...prev.bonuses, saved];
       return { ...prev, bonuses };
     });
-  }
-
-  function deleteBonus(id: string) {
-    setStore(prev => ({
-      ...prev,
-      bonuses: prev.bonuses.filter(b => b.id !== id),
-      characters: prev.characters.map(ch => ({ ...ch, bonos: ch.bonos?.filter(bb => bb.bonusId !== id) ?? [] })),
-    }));
-  }
+}
+async function deleteBonus(id: string) {
+  const { error } = await supabase.from("bonuses").delete().eq("id", id);
+  if (error) return alert("Error eliminando bonificación: " + error.message);
+  setStore(prev => ({
+    ...prev,
+    bonuses: prev.bonuses.filter(b => b.id !== id),
+    characters: prev.characters.map(ch => ({ ...ch, bonos: ch.bonos?.filter(bb => bb.bonusId !== id) ?? [] })),
+  }));
+}
 
   // extras: stats globales
-  function addExtraStat(name: string) {
-    setStore(prev => {
-      if (prev.extraStats.includes(name)) return prev;
-      return { ...prev, extraStats: [...prev.extraStats, name] };
-    });
-  }
+  async function addExtraStat(name: string) {
+  const { error } = await supabase.from("extra_stats").upsert({ name });
+  if (error) { alert("Error añadiendo stat: " + error.message); return; }
+  setStore(prev => prev.extraStats.includes(name) ? prev : { ...prev, extraStats: [...prev.extraStats, name] });
+}
 
   // Filtering
   const filteredSkills = useMemo(() => {
@@ -913,6 +946,21 @@ export default function MiniApp() {
 
   // Character being edited
   const editingChar = useMemo(() => store.characters.find(c => c.id === editingCharId) || undefined, [store.characters, editingCharId]);
+
+  async function addEvoLink(a: string, b: string) {
+  const { error } = await supabase.from("evo_links").upsert({ from_skill: a, to_skill: b });
+  if (error) {
+    alert("Error creando vínculo de evolución: " + error.message);
+    return;
+  }
+
+  setStore(prev => {
+    // Evita duplicados
+    const exists = prev.evoLinks.some(l => l.from === a && l.to === b);
+    if (exists) return prev;
+    return { ...prev, evoLinks: [...prev.evoLinks, { from: a, to: b }] };
+  });
+}
 
   return (
     <div className="min-h-screen w-full bg-white">
@@ -973,7 +1021,11 @@ export default function MiniApp() {
               </div>
             </Section>
             <Section title="Editor de Síntesis/Evolución" actions={<></>}>
-              <EvolutionEditor skills={store.skills} links={store.evoLinks} onAdd={(a,b)=> setStore(prev=> ({...prev, evoLinks: prev.evoLinks.find(l=>l.from===a&&l.to===b)? prev.evoLinks : [...prev.evoLinks, {from:a,to:b}] }))}/>
+              <EvolutionEditor
+                skills={store.skills}
+                links={store.evoLinks}
+                onAdd={(a, b) => addEvoLink(a, b)}
+              />
             </Section>
           </div>
         )}
@@ -1057,7 +1109,11 @@ export default function MiniApp() {
         {/* EVOLUTIONS quick view */}
         {tab === "evo" && (
           <Section title="Navegador de Síntesis / Evoluciones" actions={<></>}>
-            <EvolutionEditor skills={store.skills} links={store.evoLinks} onAdd={(a,b)=> setStore(prev=> ({...prev, evoLinks: prev.evoLinks.find(l=>l.from===a&&l.to===b)? prev.evoLinks : [...prev.evoLinks, {from:a,to:b}] }))}/>
+            <EvolutionEditor
+              skills={store.skills}
+              links={store.evoLinks}
+              onAdd={(a, b) => addEvoLink(a, b)}
+            />
           </Section>
         )}
       </div>
