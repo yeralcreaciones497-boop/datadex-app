@@ -606,7 +606,7 @@ function CharacterForm({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const base: Character = {
-      id: initial?.id ?? uid("char"),
+      id: initial?.id ?? crypto.randomUUID(),
       nombre, especie, descripcion, nivel, stats, habilidades, bonos,
     };
     onSubmit(base);
@@ -863,7 +863,7 @@ export default function MiniApp() {
   // CRUD helpers: Characters
   async function upsertCharacter(c: Character) {
   try {
-    // el id original puede ser "char_abcd123", así que convertimos a UUID
+    // Asegurar ID válido (evita "char_abc123" que da error en UUID)
     const id = isUUID(c.id) ? c.id : crypto.randomUUID();
 
     const { error } = await supabase.from("characters").upsert({
@@ -882,7 +882,7 @@ export default function MiniApp() {
       return;
     }
 
-    await loadData(); // refresca los datos
+    await loadData(); // recarga la lista después de guardar
   } catch (err: any) {
     alert("Error guardando personaje: " + (err?.message ?? String(err)));
   }
