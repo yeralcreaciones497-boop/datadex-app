@@ -107,15 +107,30 @@ type StatKey = typeof DEFAULT_STATS[number] | string;
 // Bonificaciones (por nivel) que afectan una estadística objetivo
 type BonusMode = "Porcentaje" | "Puntos";
 
+// ⬇️ Pon esto donde tienes los tipos (junto a Bonus/Character/Skill)
+
+type BonusTarget = {
+  stat: StatKey;
+  modo: BonusMode;            // "Porcentaje" | "Puntos"
+  cantidadPorNivel: number;   // por nivel
+};
+
 type Bonus = {
   id: string;
   nombre: string;
   descripcion: string;
-  objetivo: StatKey;          // a qué stat afecta
-  modo: BonusMode;            // porcentaje o puntos
-  cantidadPorNivel: number;   // p.ej. 10 (%) o 5 (puntos)
-  nivelMax: number;           // nivel máximo de la bonificación
+
+  // ✅ Nuevo (opcional, multi-objetivo)
+  objetivos?: BonusTarget[];
+
+  // ♻️ Legacy (un solo objetivo) — mantenido para compatibilidad
+  objetivo?: StatKey;
+  modo?: BonusMode;
+  cantidadPorNivel?: number;
+
+  nivelMax: number;
 };
+
 
 type Character = {
   id: string;
@@ -180,20 +195,35 @@ function isUUID(v?: string): boolean {
 // Calcula valor efectivo de una stat aplicando bonificaciones del personaje
 function calcEffectiveStat(c: Character, key: StatKey, bonuses: Bonus[]): number {
   const base = c.stats[key]?.valor ?? 0;
-  if (!c.bonos || c.bonos.length === 0) return base;
+  if (!c.bonos?.length) return base;
+
   let flat = 0;
-  let perc = 0; // porcentaje acumulado (0.10 = +10%)
+  let perc = 0;
+
   for (const assign of c.bonos) {
     const b = bonuses.find(x => x.id === assign.bonusId);
     if (!b) continue;
-    if (b.objetivo !== key) continue;
     const lvl = Math.max(0, Math.min(assign.nivel ?? 0, b.nivelMax));
-    if (lvl <= 0) continue;
-    if (b.modo === "Puntos") flat += b.cantidadPorNivel * lvl;
-    else if (b.modo === "Porcentaje") perc += (b.cantidadPorNivel / 100) * lvl;
+
+    if (b.objetivos && b.objetivos.length > 0) {
+      // ✅ Nuevo formato: múltiples objetivos
+      for (const target of b.objetivos) {
+        if (target.stat !== key) continue;
+        if (target.modo === "Puntos") flat += (target.cantidadPorNivel ?? 0) * lvl;
+        else if (target.modo === "Porcentaje") perc += ((target.cantidadPorNivel ?? 0) / 100) * lvl;
+      }
+    } else {
+      // ♻️ Formato legacy: un solo objetivo
+      if (b.objetivo !== key) continue;
+      if (b.modo === "Puntos") flat += (b.cantidadPorNivel ?? 0) * lvl;
+      else if (b.modo === "Porcentaje") perc += ((b.cantidadPorNivel ?? 0) / 100) * lvl;
+    }
   }
+
   return Math.max(0, Math.round((base * (1 + perc) + flat) * 100) / 100);
 }
+
+
 
 /**********************
  * UI Primitives      *
@@ -845,7 +875,7 @@ export default function MiniApp() {
     await loadData();
   } catch (err: any) {
     alert("Error guardando habilidad: " + (err?.message ?? String(err)));
-  }
+}
 }
 
   async function deleteSkill(id: string) {
@@ -856,8 +886,8 @@ export default function MiniApp() {
     ...prev,
     skills: prev.skills.filter(s => s.id !== id),
     characters: prev.characters.map(ch => ({ ...ch, habilidades: ch.habilidades.filter(h => h.skillId !== id) })),
-    evoLinks: prev.evoLinks.filter(l => l.from !== id && l.to !== id),
-  }));
+    evoLinks: prev.evoLinks.filter(l => l.from !== id && l.to !==id),
+}));
 }
 
   // CRUD helpers: Characters
