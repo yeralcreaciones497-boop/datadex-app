@@ -842,7 +842,12 @@ export default function MiniApp() {
           {tab === "skills" && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <Section title={editingSkill ? `Editar Habilidad — ${editingSkill.nombre}` : "Nueva / Editar Habilidad"} actions={editingSkill && (<Button variant="outline" onClick={() => setEditingSkillId(null)}>Cancelar</Button>)}>
-                <SkillForm initial={editingSkill} characters={store.characters} onSubmit={async (s) => { await upsertSkill(s); setEditingSkillId(null); await loadData(); }} />
+                <SkillForm
+                key={editingSkill?.id ?? "new-skill"}
+                initial={editingSkill}
+                characters={store.characters}
+                onSubmit={async (s) => { await upsertSkill(s); setEditingSkillId(null); await loadData(); }}
+              />
               </Section>
 
               <Section title={`Listado de Habilidades (${filteredSkills.length})`}>
@@ -862,8 +867,15 @@ export default function MiniApp() {
           {/* CHARACTERS */}
           {tab === "chars" && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Section title={editingChar ? `Editar Personaje — ${editingChar.nombre}` : "Nuevo / Editar Personaje"}>
-                <CharacterForm skills={store.skills} bonuses={store.bonuses} onSubmit={(c) => upsertCharacter(c)} initial={editingChar} extraStats={store.extraStats} />
+              <Section title={editingChar ? `Editar Personaje — ${editingChar.nombre}` : "Nuevo / Editar Personaje"} actions={editingChar && (<Button variant="outline" onClick={() => setEditingCharId(null)}>Cancelar</Button>)}>
+                <CharacterForm
+                key={editingChar?.id ?? "new-char"}
+                skills={store.skills}
+                bonuses={store.bonuses}
+                onSubmit={(c) => upsertCharacter(c)}
+                initial={editingChar}
+                extraStats={store.extraStats}
+              />
               </Section>
 
               <Section title={`Listado de Personajes (${filteredChars.length})`}>
@@ -904,7 +916,12 @@ export default function MiniApp() {
           {tab === "bonos" && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <Section title={editingBonus ? `Editar Bonificación — ${editingBonus.nombre}` : "Nueva / Editar Bonificación"} actions={editingBonus && (<Button variant="outline" onClick={() => setEditingBonusId(null)}>Cancelar</Button>)}>
-                <BonusForm initial={editingBonus} statOptions={statOptions} onSubmit={async (b) => { await upsertBonus(b); setEditingBonusId(null); }} />
+                <BonusForm
+                key={editingBonus?.id ?? "new-bonus"}
+                initial={editingBonus}
+                statOptions={statOptions}
+                onSubmit={async (b) => { await upsertBonus(b); setEditingBonusId(null); }}
+              />
               </Section>
 
               <Section title={`Listado de Bonificaciones (${filteredBonuses.length})`}>
