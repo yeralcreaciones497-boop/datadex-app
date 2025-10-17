@@ -661,6 +661,72 @@ function CharacterRow({ c, onEdit, onDelete, skillsById, bonuses }: { c: Charact
  * Root App           * (con layout responsive + barras sticky)
  **********************/
 
+/* ********************
+ * Leaderboard (Rankings)
+ * ******************** */
+function Leaderboard({ characters, bonuses, statOptions }: { characters: Character[]; bonuses: Bonus[]; statOptions: string[] }) {
+  const [stat, setStat] = useState<string>(statOptions[0] ?? "Fuerza");
+  const [useEffective, setUseEffective] = useState(true);
+  const [topN, setTopN] = useState<number>(10);
+
+  const rows = useMemo(() => {
+    const list = characters.map(c => {
+      const base = c.stats?.[stat]?.valor ?? 0;
+      const eff = calcEffectiveStat(c, stat as StatKey, bonuses);
+      const value = useEffective ? eff : base;
+      const cls = classifyStat(value);
+      return { id: c.id, nombre: c.nombre, especie: c.especie, value, cls: cls.sub };
+    }).sort((a,b) => b.value - a.value);
+    return list.slice(0, Math.max(1, topN));
+  }, [characters, bonuses, stat, topN, useEffective]);
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Field label="Estadística">
+          <Select value={stat} onValueChange={setStat}>
+            <SelectTrigger><SelectValue/></SelectTrigger>
+            <SelectContent className="max-h-60 overflow-auto">
+              {statOptions.map(s => (<SelectItem key={s} value={s}>{s}</SelectItem>))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field label="Valor mostrado">
+          <div className="flex items-center gap-2">
+            <Switch checked={useEffective} onCheckedChange={setUseEffective} />
+            <span className="text-sm opacity-80">{useEffective ? "Efectivo (con bonificaciones)" : "Base (sin bonificaciones)"}</span>
+          </div>
+        </Field>
+        <Field label="Top N">
+          <Input inputMode="numeric" type="number" min={1} max={100} value={topN} onChange={(e)=>setTopN(Math.max(1, Math.min(100, parseInt(e.target.value || "10"))))} />
+        </Field>
+      </div>
+
+      <div className="overflow-x-auto">
+        <div className="min-w-[560px]">
+          <div className="grid grid-cols-12 px-2 py-2 text-xs font-medium border-b bg-gray-50">
+            <div className="col-span-1">#</div>
+            <div className="col-span-5">Personaje</div>
+            <div className="col-span-3">Especie</div>
+            <div className="col-span-3 text-right">Valor</div>
+          </div>
+          {rows.map((r, i) => (
+            <div key={r.id} className="grid grid-cols-12 items-center px-2 py-2 border-b">
+              <div className="col-span-1 text-sm">{i+1}</div>
+              <div className="col-span-5 truncate" title={r.nombre}>{r.nombre}</div>
+              <div className="col-span-3 truncate" title={r.especie}>{r.especie}</div>
+              <div className="col-span-3 text-right font-medium flex items-center justify-end gap-2">
+                <span>{r.value}</span>
+                <Pill>{r.cls}</Pill>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function MiniApp() {
   const [store, setStore] = useState<Store>(EMPTY_STORE);
   const [tab, setTab] = useState("skills");
@@ -811,6 +877,7 @@ export default function MiniApp() {
                   <TabsTrigger value="chars">Personajes</TabsTrigger>
                   <TabsTrigger value="bonos">Bonificaciones</TabsTrigger>
                   <TabsTrigger value="evo">Síntesis/Evolución</TabsTrigger>
+                  <TabsTrigger value="rank">Rankings</TabsTrigger>
                 </TabsList>
               </Tabs>
               {/* Botón limpiar edición (móvil/desktop) */}
@@ -826,6 +893,7 @@ export default function MiniApp() {
               <TabsTrigger value="chars" className="flex-1">Personajes</TabsTrigger>
               <TabsTrigger value="bonos" className="flex-1">Bonos</TabsTrigger>
               <TabsTrigger value="evo" className="flex-1">Evolución</TabsTrigger>
+              <TabsTrigger value="rank" className="flex-1">Rank</TabsTrigger>
             </TabsList>
           </Tabs>
           {/* Barra de acciones compacta para móvil */}
@@ -939,6 +1007,12 @@ export default function MiniApp() {
           {tab === "evo" && (
             <Section title="Navegador de Síntesis / Evoluciones">
               <EvolutionEditor skills={store.skills} links={store.evoLinks} onAdd={(a, b) => addEvoLink(a, b)} />
+            </Section>
+          )}
+
+          {tab === "rank" && (
+            <Section title="Rankings por Estadística">
+              <Leaderboard characters={store.characters} bonuses={store.bonuses} statOptions={statOptions} />
             </Section>
           )}
         </div>
