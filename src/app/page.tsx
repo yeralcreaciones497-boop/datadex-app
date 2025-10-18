@@ -1,5 +1,31 @@
 "use client";
 
+/**
+ * Página principal de gestión del sistema (habilidades, bonificaciones, personajes y especies).
+ * Estilo B: CÓDIGO CON COMENTARIOS EXPLICATIVOS.
+ * 
+ * Cambios clave en esta actualización:
+ * - Se restituye y mejora el apartado "Especies" con CRUD completo.
+ * - Cada especie ahora soporta:
+ *    • allowMind (si puede usar Mente)
+ *    • baseMods (bonos por especie en Puntos o Porcentaje)
+ *    • equivalencias (json editable) 
+ * - En Personajes:
+ *    • Selector de especie + campo "custom" opcional.
+ *    • Mente se calcula automáticamente con √(INT×SAB) solo si la especie lo permite; si no, se fija en 0.
+ *    • Al guardar el personaje, se aplican los baseMods de la especie (suma de % y/o puntos).
+ * - Se mantiene compatibilidad con tus tablas Supabase:
+ *    • species(id, nombre, descripcion, equivalencias jsonb, allow_mind boolean, base_mods jsonb)
+ *    • extra_stats(name)
+ *    • bonuses(...)
+ *    • skills(...)
+ *    • characters(...)
+ */
+
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { supabase } from "@/lib/supabaseClient";
+
+// UI (shadcn/ui)
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
@@ -9,13 +35,13 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Plus, Save, Download, Trash2, ChevronRight, Link2, Wand2, Settings2, Minus, X } from "lucide-react";
-import { supabase } from "@/lib/supabaseClient";
-import React, { useEffect, useMemo, useState, useCallback } from "react";
 
-/**********************
- * Types & Constants  *
- **********************/
+// Iconos
+import { Plus, Save, Trash2, Settings2, ChevronRight, Minus, Link2 } from "lucide-react";
+
+/* ---------------------------------------------
+ * Tipos y constantes de dominio
+ * -------------------------------------------*/
 
 type SkillClass = "Activa" | "Pasiva" | "Crecimiento";
 
@@ -36,13 +62,11 @@ const TIERS: Tier[] = [
   "SSS-","SSS","SSS+",
 ];
 
-const SKILL_CLASSES: SkillClass[] = ["Activa", "Pasiva", "Crecimiento"];
-
 const BASE_RANKS = [
   "Humano","Genin","Chunnin","Jounin","Kage","Bijuu","Catástrofe","Deidad"
 ] as const;
 
-// Tabla de clasificación automática por valor → (base, subnivel)
+// Tabla de clasificación (valor numérico → rango)
 const STAT_CLASS_TABLE: { base: typeof BASE_RANKS[number]; sub: string; min: number; max: number | null }[] = [
   // Humano
   { base: "Humano", sub: "Humano Bajo", min: 1, max: 4 },
@@ -93,33 +117,32 @@ function classifyStat(value: number): { base: typeof BASE_RANKS[number]; sub: st
   return hit ? { base: hit.base, sub: hit.sub } : { base: "Deidad", sub: "Deidad Élite" };
 }
 
+// Mente = √(Inteligencia × Sabiduría)
+function computeMind(intel: number, sab: number): number {
+  const i = Math.max(0, intel || 0);
+  const s = Math.max(0, sab || 0);
+  return Math.round(Math.sqrt(i * s));
+}
+
 const DEFAULT_STATS = [
   "Fuerza","Resistencia","Destreza","Mente","Vitalidad","Inteligencia","Sabiduría"
 ] as const;
 
-// --- Helpers ---
-function uid(prefix = "id"): string {
-  return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
-}
-
-function downloadJSON(filename: string, data: unknown) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
-  const a = document.createElement("a");
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
-}
-
-function isUUID(v?: string): boolean {
-  return !!v && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(v);
-}
-
-/**********************
- * Tipos de dominio   *
- **********************/
-
 type StatKey = typeof DEFAULT_STATS[number] | string;
-
 type BonusMode = "Porcentaje" | "Puntos";
+
+type Equivalencia = { unidad: string; valorPorPunto: number };
+
+type SpeciesBaseMod = { stat: StatKey; modo: "Puntos" | "Porcentaje"; cantidad: number };
+
+type Species = {
+  id: string;
+  nombre: string;
+  descripcion: string;
+  equivalencias: Record<string, Equivalencia>;
+  allowMind: boolean;
+  baseMods?: SpeciesBaseMod[];
+};
 
 type BonusTarget = { stat: StatKey; modo: BonusMode; cantidadPorNivel: number };
 
@@ -127,10 +150,10 @@ type Bonus = {
   id: string;
   nombre: string;
   descripcion: string;
-  objetivos?: BonusTarget[]; // multi-objetivo (futuro)
-  objetivo?: StatKey;        // legacy
-  modo?: BonusMode;          // legacy
-  cantidadPorNivel?: number; // legacy
+  objetivos?: BonusTarget[]; // Soporte multi-objetivo (opcional)
+  objetivo?: StatKey;        // Compat. legacy
+  modo?: BonusMode;          // Compat. legacy
+  cantidadPorNivel?: number; // Compat. legacy
   nivelMax: number;
 };
 
@@ -143,7 +166,6 @@ export type Character = {
   stats: Record<StatKey, { valor: number; rango: string }>;
   habilidades: { skillId: string; nivel: number }[];
   bonos: { bonusId: string; nivel: number }[];
-  inventario?: any[]; // (extensible)
 };
 
 export type Skill = {
@@ -166,14 +188,38 @@ type Store = {
   evoLinks: EvoLink[];
   bonuses: Bonus[];
   extraStats: string[];
+  species: Species[];
 };
 
-const EMPTY_STORE: Store = { skills: [], characters: [], evoLinks: [], bonuses: [], extraStats: [] };
+const EMPTY_STORE: Store = {
+  skills: [],
+  characters: [],
+  evoLinks: [],
+  bonuses: [],
+  extraStats: [],
+  species: [],
+};
 
-/**********************
- * Cálculos           *
- **********************/
+/* ---------------------------------------------
+ * Utilidades comunes
+ * -------------------------------------------*/
 
+function uid(prefix = "id"): string {
+  return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function downloadJSON(filename: string, data: unknown) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function isUUID(v?: string): boolean {
+  return !!v && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(v);
+}
+
+// Suma bonificaciones por personaje → stat
 function calcEffectiveStat(c: Character, key: StatKey, bonuses: Bonus[]): number {
   const base = c.stats[key]?.valor ?? 0;
   if (!c.bonos?.length) return base;
@@ -181,7 +227,9 @@ function calcEffectiveStat(c: Character, key: StatKey, bonuses: Bonus[]): number
   let flat = 0; let perc = 0;
   for (const assign of c.bonos) {
     const b = bonuses.find(x => x.id === assign.bonusId);
-    if (!b) continue; const lvl = Math.max(0, Math.min(assign.nivel ?? 0, b.nivelMax));
+    if (!b) continue; 
+    const lvl = Math.max(0, Math.min(assign.nivel ?? 0, b.nivelMax));
+
     if (b.objetivos?.length) {
       for (const target of b.objetivos) {
         if (target.stat !== key) continue;
@@ -197,26 +245,20 @@ function calcEffectiveStat(c: Character, key: StatKey, bonuses: Bonus[]): number
   return Math.max(0, Math.round((base * (1 + perc) + flat) * 100) / 100);
 }
 
-/**********************
- * Primitivos UI      * (responsive tweaks)
- **********************/
+/* ---------------------------------------------
+ * Componentes UI básicos
+ * -------------------------------------------*/
 
-function Section({ title, children, actions, collapsible = true }: { title: string; children: React.ReactNode; actions?: React.ReactNode; collapsible?: boolean }) {
-  const [open, setOpen] = useState(true);
+function Section({ title, children, actions }: { title: string; children: React.ReactNode; actions?: React.ReactNode; }) {
   return (
-    <Card className="border border-gray-200 overflow-hidden">
-      <CardHeader className="flex items-center justify-between py-3 gap-2 sticky top-0 bg-white/80 backdrop-blur z-10">
-        <div className="flex items-center gap-3 w-full">
-          {collapsible && (
-            <Button size="icon" variant="ghost" className="shrink-0" onClick={() => setOpen(v => !v)} aria-label={open ? "Contraer" : "Expandir"}>
-              {open ? <Minus className="w-4 h-4"/> : <Plus className="w-4 h-4"/>}
-            </Button>
-          )}
-          <CardTitle className="text-lg md:text-xl font-semibold truncate">{title}</CardTitle>
-          <div className="ml-auto flex gap-2">{actions}</div>
+    <Card className="border border-gray-200">
+      <CardHeader className="py-3">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-lg md:text-xl">{title}</CardTitle>
+          {actions}
         </div>
       </CardHeader>
-      {open && <CardContent className="p-3 md:p-4">{children}</CardContent>}
+      <CardContent className="p-3 md:p-4">{children}</CardContent>
     </Card>
   );
 }
@@ -234,9 +276,9 @@ function Pill({ children }: { children: React.ReactNode }) {
   return <Badge className="rounded-2xl px-2 py-1 text-[11px] md:text-xs whitespace-nowrap">{children}</Badge>;
 }
 
-/**********************
- * Componentes        * (con mejoras responsive puntuales)
- **********************/
+/* ---------------------------------------------
+ * Habilidades
+ * -------------------------------------------*/
 
 function SkillForm({ onSubmit, initial, characters }: { onSubmit: (s: Skill) => void; initial?: Skill; characters: Character[]; }) {
   const [nombre, setNombre] = useState(initial?.nombre ?? "");
@@ -261,7 +303,7 @@ function SkillForm({ onSubmit, initial, characters }: { onSubmit: (s: Skill) => 
         <Field label="Clase">
           <Select value={clase} onValueChange={(v) => setClase(v as SkillClass)}>
             <SelectTrigger><SelectValue placeholder="Selecciona" /></SelectTrigger>
-            <SelectContent>{SKILL_CLASSES.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}</SelectContent>
+            <SelectContent>{["Activa","Pasiva","Crecimiento"].map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}</SelectContent>
           </Select>
         </Field>
         <Field label="Nivel"><Input inputMode="numeric" type="number" min={0} value={nivel} onChange={(e) => setNivel(parseInt(e.target.value || "0"))} /></Field>
@@ -310,72 +352,9 @@ function SkillRow({ s, onEdit, onDelete }: { s: Skill; onEdit: () => void; onDel
   );
 }
 
-function EvolutionEditor({ skills, links, onAdd }: { skills: Skill[]; links: EvoLink[]; onAdd: (from: string, to: string) => void }) {
-  const [from, setFrom] = useState<string>("");
-  const [to, setTo] = useState<string>("");
-
-  const incomingMap = useMemo(() => {
-    const m = new Map<string, number>();
-    skills.forEach(s => m.set(s.id, 0));
-    links.forEach(l => m.set(l.to, (m.get(l.to) ?? 0) + 1));
-    return m;
-  }, [skills, links]);
-
-  const roots = useMemo(() => skills.filter(s => (incomingMap.get(s.id) ?? 0) === 0), [skills, incomingMap]);
-  const byId = useMemo(() => Object.fromEntries(skills.map(s => [s.id, s])), [skills]);
-  const childrenOf = useMemo(() => {
-    const m: Record<string, string[]> = {};
-    links.forEach(l => { (m[l.from] ||= []).push(l.to); });
-    return m;
-  }, [links]);
-
-  function Tree({ id }: { id: string }) {
-    const kids = childrenOf[id] || [];
-    return (
-      <div className="ml-2">
-        <div className="flex items-center gap-2 text-sm">
-          <ChevronRight className="w-4 h-4"/>
-          <span className="font-medium truncate">{byId[id]?.nombre}</span>
-          <Badge className="rounded-2xl text-[10px]">{byId[id]?.tier}</Badge>
-        </div>
-        <div className="ml-4 border-l pl-2">
-          {kids.map((k) => <Tree key={k} id={k} />)}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-col md:flex-row gap-2 items-stretch md:items-end">
-        <div className="flex-1">
-          <Label>De</Label>
-          <Select value={from} onValueChange={setFrom}>
-            <SelectTrigger><SelectValue placeholder="Habilidad base"/></SelectTrigger>
-            <SelectContent className="max-h-64 overflow-auto">{skills.map(s => <SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
-        <div className="flex-1">
-          <Label>A</Label>
-          <Select value={to} onValueChange={setTo}>
-            <SelectTrigger><SelectValue placeholder="Síntesis/Evolución"/></SelectTrigger>
-            <SelectContent className="max-h-64 overflow-auto">{skills.map(s => <SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
-        <Button disabled={!from || !to || from === to} onClick={() => { onAdd(from, to); setFrom(""); setTo(""); }} className="gap-2">
-          <Link2 className="w-4 h-4"/> Vincular
-        </Button>
-      </div>
-
-      <div className="space-y-2 overflow-x-auto">
-        {roots.length === 0 && <div className="text-sm opacity-70">No hay raíces definidas. Crea vínculos para ver el árbol.</div>}
-        <div className="min-w-[320px]">
-          {roots.map(r => <Tree key={r.id} id={r.id} />)}
-        </div>
-      </div>
-    </div>
-  );
-}
+/* ---------------------------------------------
+ * Bonificaciones
+ * -------------------------------------------*/
 
 function BonusForm({ initial, onSubmit, statOptions }: { initial?: Bonus; onSubmit: (b: Bonus) => void; statOptions: string[] }) {
   const [nombre, setNombre] = useState(initial?.nombre ?? "");
@@ -439,8 +418,22 @@ function BonusRow({ b, onEdit, onDelete }: { b: Bonus; onEdit: () => void; onDel
   );
 }
 
-function StatEditor({ stats, onChange, extraStats, onAddStat }: { stats: Character["stats"]; onChange: (k: StatKey, patch: Partial<{ valor: number; rango: string }>) => void; extraStats: string[]; onAddStat: (name: string) => void; }) {
+/* ---------------------------------------------
+ * Editor de estadísticas (con política de Mente)
+ * -------------------------------------------*/
+
+function StatEditor({
+  stats, onChange, extraStats, onAddStat, mindPolicy = "auto"
+}: {
+  stats: Character["stats"];
+  onChange: (k: StatKey, patch: Partial<{ valor: number; rango: string }>) => void;
+  extraStats: string[];
+  onAddStat?: (name: string) => void;
+  mindPolicy?: "auto" | "none" | "manual";
+}) {
   const [newStat, setNewStat] = useState("");
+
+  // Lista completa de stats (base + extra) sin duplicados
   const statKeys = useMemo(() => {
     const base = [...DEFAULT_STATS];
     extraStats.forEach(s => base.push(s as any));
@@ -453,6 +446,20 @@ function StatEditor({ stats, onChange, extraStats, onAddStat }: { stats: Charact
         {statKeys.map((k) => {
           const entry = stats[k] ?? { valor: 0, rango: "Humano Bajo" };
           const cls = classifyStat(entry.valor);
+
+          // Cálculo automático de Mente (si aplica)
+          const isMind = k.toLowerCase() === "mente";
+          const intelKey = Object.keys(stats).find((s) => s.toLowerCase() === "inteligencia") ?? "Inteligencia";
+          const sabKey = Object.keys(stats).find((s) => ["sabiduría","sabiduria"].includes(s.toLowerCase()) || s.toLowerCase().startsWith("sabid")) ?? "Sabiduría";
+          const intelVal = stats[intelKey]?.valor ?? 0;
+          const sabVal   = stats[sabKey]?.valor ?? 0;
+          const autoMind = computeMind(intelVal, sabVal);
+
+          const valueForInput = isMind
+            ? (mindPolicy === "auto" ? autoMind : (mindPolicy === "none" ? 0 : entry.valor))
+            : entry.valor;
+          const disabledForInput = isMind ? (mindPolicy !== "manual") : false;
+
           return (
             <Card key={k} className="p-3">
               <div className="flex items-center justify-between gap-2">
@@ -462,40 +469,87 @@ function StatEditor({ stats, onChange, extraStats, onAddStat }: { stats: Charact
                   <Badge className="rounded-2xl" title="Rango real">{cls.sub}</Badge>
                 </div>
               </div>
+
               <div className="mt-3 grid grid-cols-3 gap-2 items-center">
                 <Label>Valor</Label>
-                <Input inputMode="numeric" type="number" className="col-span-2" value={entry.valor} onChange={(e) => {
-                  const v = parseFloat(e.target.value || "0");
-                  const derived = classifyStat(v);
-                  onChange(k, { valor: v, rango: derived.sub });
-                }} />
-                <div className="col-span-3 text-[11px] opacity-70">La clasificación se actualiza automáticamente según el valor.</div>
+                <Input
+                  inputMode="numeric"
+                  type="number"
+                  className="col-span-2"
+                  value={valueForInput}
+                  disabled={disabledForInput}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value || "0");
+                    const derived = classifyStat(v);
+                    onChange(k, { valor: v, rango: derived.sub });
+                  }}
+                />
+                {isMind && mindPolicy === "auto" && (
+                  <div className="col-span-3 text-[11px] opacity-70">
+                    Mente se calcula automáticamente con Inteligencia y Sabiduría.
+                  </div>
+                )}
+                {isMind && mindPolicy === "none" && (
+                  <div className="col-span-3 text-[11px] opacity-70">
+                    Esta especie no puede usar Mente.
+                  </div>
+                )}
               </div>
             </Card>
           );
         })}
       </div>
+
       <div className="flex gap-2 items-end flex-wrap">
         <div className="flex-1 min-w-[220px]">
           <Label>Nueva estadística</Label>
-          <Input value={newStat} onChange={(e) => setNewStat(e.target.value)} placeholder="Ej: Chakra, Haki, Magia"/>
+          <Input
+            value={newStat}
+            onChange={(e) => setNewStat(e.target.value)}
+            placeholder="Ej: Chakra, Haki, Magia"
+          />
         </div>
-        <Button type="button" variant="outline" onClick={() => { if (!newStat.trim()) return; onAddStat(newStat.trim()); setNewStat(""); }} className="gap-2">
-          <Plus className="w-4 h-4"/>Añadir stat
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            if (!newStat.trim()) return;
+            onAddStat?.(newStat.trim());
+            setNewStat("");
+          }}
+          className="gap-2"
+        >
+          <Plus className="w-4 h-4" />Añadir stat
         </Button>
       </div>
     </div>
   );
 }
 
-function CharacterForm({ initial, onSubmit, skills, bonuses, extraStats }: { initial?: Character; onSubmit: (c: Character) => void; skills: Skill[]; bonuses: Bonus[]; extraStats: string[]; }) {
+/* ---------------------------------------------
+ * Formulario de Personajes
+ * -------------------------------------------*/
+
+function CharacterForm({
+  initial, onSubmit, skills, bonuses, extraStats, species
+}: {
+  initial?: Character;
+  onSubmit: (c: Character) => void;
+  skills: Skill[];
+  bonuses: Bonus[];
+  extraStats: string[];
+  species: Species[];
+}) {
   const [nombre, setNombre] = useState(initial?.nombre ?? "");
   const [especie, setEspecie] = useState(initial?.especie ?? "");
+  const [customSpec, setCustomSpec] = useState("");
   const [descripcion, setDescripcion] = useState(initial?.descripcion ?? "");
   const [nivel, setNivel] = useState<number>(initial?.nivel ?? 1);
   const [stats, setStats] = useState<Character["stats"]>(initial?.stats ?? {});
   const [habilidades, setHabilidades] = useState<Character["habilidades"]>(initial?.habilidades ?? []);
   const [bonos, setBonos] = useState<Character["bonos"]>(initial?.bonos ?? []);
+
+  const selectedSpecies = useMemo(() => species.find(s => s.nombre === (customSpec.trim() || especie)), [species, especie, customSpec]);
 
   function upStat(k: StatKey, patch: Partial<{ valor: number; rango: string }>) {
     setStats((prev) => ({ ...prev, [k]: { valor: patch.valor ?? prev[k]?.valor ?? 0, rango: (patch.rango ?? prev[k]?.rango ?? "Humano Bajo") as string } }));
@@ -508,7 +562,6 @@ function CharacterForm({ initial, onSubmit, skills, bonuses, extraStats }: { ini
       return [...prev, { skillId, nivel: skills.find(s => s.id === skillId)?.nivel ?? 1 }];
     });
   }
-
   function setSkillLevel(skillId: string, nivel: number) {
     setHabilidades((prev) => prev.map(h => h.skillId === skillId ? { ...h, nivel } : h));
   }
@@ -521,27 +574,86 @@ function CharacterForm({ initial, onSubmit, skills, bonuses, extraStats }: { ini
       return [...prev, { bonusId, nivel: 1 > max ? max : 1 }];
     });
   }
-
   function setBonusLevel(bonusId: string, lvl: number) {
     setBonos(prev => prev.map(b => b.bonusId === bonusId ? { ...b, nivel: Math.max(0, Math.min(lvl, bonuses.find(x=>x.id===bonusId)?.nivelMax ?? lvl)) } : b));
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    const finalSpeciesName = (customSpec.trim() || especie);
+    const sp = species.find(s => s.nombre === finalSpeciesName);
+
+    // Claves de INT y SAB (robustas ante acentos)
+    const intelKey = Object.keys(stats).find((s) => s.toLowerCase() === "inteligencia") ?? "Inteligencia";
+    const sabKey   = Object.keys(stats).find((s) => {
+      const ls = s.toLowerCase();
+      return ls === "sabiduría" || ls === "sabiduria" || ls.startsWith("sabid");
+    }) ?? "Sabiduría";
+
+    const intelVal = stats[intelKey]?.valor ?? 0;
+    const sabVal   = stats[sabKey]?.valor ?? 0;
+
+    // Mente según especie
+    const mindVal  = sp?.allowMind ? computeMind(intelVal, sabVal) : 0;
+    let finalStats: Character["stats"] = {
+      ...stats,
+      Mente: { valor: mindVal, rango: classifyStat(mindVal).sub },
+    };
+
+    // Aplicar baseMods de especie (Puntos / %)
+    if (sp?.baseMods?.length) {
+      let flat: Record<string, number> = {};
+      let perc: Record<string, number> = {};
+      for (const m of sp.baseMods) {
+        if (m.modo === "Puntos") flat[m.stat] = (flat[m.stat] ?? 0) + m.cantidad;
+        else perc[m.stat] = (perc[m.stat] ?? 0) + (m.cantidad / 100);
+      }
+      for (const k of Object.keys(finalStats)) {
+        const base = finalStats[k].valor ?? 0;
+        const withPerc = base * (1 + (perc[k] ?? 0));
+        const withFlat = withPerc + (flat[k] ?? 0);
+        finalStats[k] = { valor: Math.round(withFlat * 100) / 100, rango: classifyStat(withFlat).sub };
+      }
+    }
+
     const base: Character = {
       id: initial?.id ?? (globalThis.crypto?.randomUUID?.() ?? uid("char")),
-      nombre, especie, descripcion, nivel, stats, habilidades, bonos,
+      nombre, especie: finalSpeciesName, descripcion, nivel,
+      stats: finalStats, habilidades, bonos,
     };
     onSubmit(base);
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Identidad */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Field label="Nombre"><Input value={nombre} onChange={(e) => setNombre(e.target.value)} /></Field>
-        <Field label="Especie"><Input value={especie} onChange={(e) => setEspecie(e.target.value)} placeholder="Ej: Humano, Uzumaki, Dragón"/></Field>
+        <Field label="Especie">
+          <div className="flex gap-2 items-center">
+            {/* Selector por especie guardada */}
+            <Select
+              value={selectedSpecies?.id ?? ""}
+              onValueChange={(id) => {
+                if (id === "__custom__") return;
+                const sp = species.find(s => s.id === id);
+                setEspecie(sp?.nombre ?? "");
+              }}
+            >
+              <SelectTrigger><SelectValue placeholder="Selecciona especie"/></SelectTrigger>
+              <SelectContent className="max-h-64 overflow-auto">
+                {species.map(sp => (<SelectItem key={sp.id} value={sp.id}>{sp.nombre}</SelectItem>))}
+                <SelectItem value="__custom__">Otra (escribir)</SelectItem>
+              </SelectContent>
+            </Select>
+            {/* Campo para especie personalizada */}
+            <Input placeholder="Otra especie (texto)" value={customSpec} onChange={(e)=>setCustomSpec(e.target.value)} />
+          </div>
+        </Field>
       </div>
 
+      {/* Nivel */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <Card className="p-3">
           <div className="flex items-center justify-between">
@@ -549,45 +661,56 @@ function CharacterForm({ initial, onSubmit, skills, bonuses, extraStats }: { ini
             <div className="flex items-center gap-2">
               <Button type="button" variant="outline" size="icon" onClick={()=>setNivel(Math.max(1, nivel-1))}><Minus className="w-4 h-4"/></Button>
               <Input inputMode="numeric" type="number" className="w-20" min={1} value={nivel} onChange={(e)=>setNivel(Math.max(1, parseInt(e.target.value || "1")))} />
-              <Button type="button" variant="outline" size="icon" onClick={()=>setNivel(nivel+1)}><Plus className="w-4 h-4"/></Button>
+              <Button type="button" variant="outline" size="icon" onClick={()=>setNivel(nivel+1)}>+</Button>
             </div>
           </div>
         </Card>
       </div>
 
+      {/* Descripción */}
       <Field label="Descripción"><Textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)} className="min-h-[96px]"/></Field>
 
-      <Section title="Estadísticas (base)"><StatEditor stats={stats} onChange={upStat} extraStats={extraStats} onAddStat={() => {}}/></Section>
+      {/* Stats base: Mente condicionada por especie */}
+      <Section title="Estadísticas (base)">
+        <StatEditor
+          stats={stats}
+          onChange={upStat}
+          extraStats={extraStats}
+          onAddStat={() => {}}
+          mindPolicy={!selectedSpecies ? "auto" : (selectedSpecies.allowMind ? "auto" : "none")}
+        />
+      </Section>
 
+      {/* Habilidades */}
       <Section title="Habilidades del personaje">
-        <div className="space-y-2">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {skills.map(s => {
-              const has = !!habilidades.find(h => h.skillId === s.id);
-              return (
-                <Card key={s.id} className={`p-3 ${has ? "ring-1 ring-gray-300" : ""}`}>
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <Switch checked={has} onCheckedChange={() => toggleSkill(s.id)} />
-                      <div>
-                        <div className="font-medium truncate" title={s.nombre}>{s.nombre}</div>
-                        <div className="text-xs opacity-70">{s.clase} · {s.tier}</div>
-                      </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          {skills.map(s => {
+            const has = !!habilidades.find(h => h.skillId === s.id);
+            const cur = habilidades.find(h => h.skillId === s.id)?.nivel ?? 1;
+            return (
+              <Card key={s.id} className={`p-3 ${has ? "ring-1 ring-gray-300" : ""}`}>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Switch checked={has} onCheckedChange={() => toggleSkill(s.id)} />
+                    <div>
+                      <div className="font-medium truncate" title={s.nombre}>{s.nombre}</div>
+                      <div className="text-xs opacity-70">{s.clase} · {s.tier}</div>
                     </div>
-                    {has && (
-                      <div className="flex items-center gap-2">
-                        <Label className="text-xs">Nivel</Label>
-                        <Input inputMode="numeric" type="number" className="w-20 h-8" min={0} value={habilidades.find(h => h.skillId === s.id)?.nivel ?? 1} onChange={(e) => setSkillLevel(s.id, parseInt(e.target.value || "0"))} />
-                      </div>
-                    )}
                   </div>
-                </Card>
-              );
-            })}
-          </div>
+                  {has && (
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs">Nivel</Label>
+                      <Input inputMode="numeric" type="number" className="w-20 h-8" min={0} value={cur} onChange={(e) => setSkillLevel(s.id, parseInt(e.target.value || "0"))} />
+                    </div>
+                  )}
+                </div>
+              </Card>
+            );
+          })}
         </div>
       </Section>
 
+      {/* Bonificaciones */}
       <Section title="Bonificaciones aplicadas">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
           {bonuses.length === 0 && <div className="text-sm opacity-70">No hay bonificaciones definidas. Ve a la pestaña Bonificaciones.</div>}
@@ -609,7 +732,7 @@ function CharacterForm({ initial, onSubmit, skills, bonuses, extraStats }: { ini
                       <Label className="text-xs">Nivel</Label>
                       <Button type="button" size="icon" variant="outline" onClick={()=>setBonusLevel(b.id, Math.max(0, lvl-1))}><Minus className="w-4 h-4"/></Button>
                       <Input inputMode="numeric" type="number" className="w-16 h-8" min={0} max={b.nivelMax} value={lvl} onChange={(e)=>setBonusLevel(b.id, parseInt(e.target.value || "0"))} />
-                      <Button type="button" size="icon" variant="outline" onClick={()=>setBonusLevel(b.id, Math.min(b.nivelMax, lvl+1))}><Plus className="w-4 h-4"/></Button>
+                      <Button type="button" size="icon" variant="outline" onClick={()=>setBonusLevel(b.id, Math.min(b.nivelMax, lvl+1))}>+</Button>
                     </div>
                   )}
                 </div>
@@ -623,6 +746,10 @@ function CharacterForm({ initial, onSubmit, skills, bonuses, extraStats }: { ini
     </form>
   );
 }
+
+/* ---------------------------------------------
+ * Tabla de Personajes (vista compacta)
+ * -------------------------------------------*/
 
 function CharacterRow({ c, onEdit, onDelete, skillsById, bonuses }: { c: Character; onEdit: () => void; onDelete: () => void; skillsById: Record<string, Skill>; bonuses: Bonus[] }) {
   const entries = Object.entries(c.stats).slice(0,3);
@@ -657,13 +784,177 @@ function CharacterRow({ c, onEdit, onDelete, skillsById, bonuses }: { c: Charact
   );
 }
 
-/**********************
- * Root App           * (con layout responsive + barras sticky)
- **********************/
+/* ---------------------------------------------
+ * Evoluciones (vínculos entre habilidades)
+ * -------------------------------------------*/
 
-/* ********************
- * Leaderboard (Rankings)
- * ******************** */
+function EvolutionEditor({ skills, links, onAdd }: { skills: Skill[]; links: EvoLink[]; onAdd: (from: string, to: string) => void }) {
+  const [from, setFrom] = useState<string>("");
+  const [to, setTo] = useState<string>("");
+
+  // Mapa para contar entradas a cada nodo (para encontrar raíces)
+  const incomingMap = useMemo(() => {
+    const m = new Map<string, number>();
+    skills.forEach(s => m.set(s.id, 0));
+    links.forEach(l => m.set(l.to, (m.get(l.to) ?? 0) + 1));
+    return m;
+  }, [skills, links]);
+
+  const roots = useMemo(() => skills.filter(s => (incomingMap.get(s.id) ?? 0) === 0), [skills, incomingMap]);
+  const byId = useMemo(() => Object.fromEntries(skills.map(s => [s.id, s])), [skills]);
+  const childrenOf = useMemo(() => {
+    const m: Record<string, string[]> = {};
+    links.forEach(l => { (m[l.from] ||= []).push(l.to); });
+    return m;
+  }, [links]);
+
+  function Tree({ id }: { id: string }) {
+    const kids = childrenOf[id] || [];
+    return (
+      <div className="ml-2">
+        <div className="flex items-center gap-2 text-sm">
+          <ChevronRight className="w-4 h-4"/>
+          <span className="font-medium truncate">{byId[id]?.nombre}</span>
+          <Badge className="rounded-2xl text-[10px]">{byId[id]?.tier}</Badge>
+        </div>
+        <div className="ml-4 border-l pl-2">
+          {kids.map((k) => <Tree key={k} id={k} />)}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-col md:flex-row gap-2 items-stretch md:items-end">
+        <div className="flex-1">
+          <Label>De</Label>
+          <Select value={from} onValueChange={setFrom}>
+            <SelectTrigger><SelectValue placeholder="Habilidad base"/></SelectTrigger>
+            <SelectContent className="max-h-64 overflow-auto">{skills.map(s => <SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div className="flex-1">
+          <Label>A</Label>
+          <Select value={to} onValueChange={setTo}>
+            <SelectTrigger><SelectValue placeholder="Síntesis/Evolución"/></SelectTrigger>
+            <SelectContent className="max-h-64 overflow-auto">{skills.map(s => <SelectItem key={s.id} value={s.id}>{s.nombre}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <Button disabled={!from || !to || from === to} onClick={() => { onAdd(from, to); setFrom(""); setTo(""); }} className="gap-2">
+          <Link2 className="w-4 h-4"/> Vincular
+        </Button>
+      </div>
+
+      <div className="space-y-2 overflow-x-auto">
+        {roots.length === 0 && <div className="text-sm opacity-70">No hay raíces definidas. Crea vínculos para ver el árbol.</div>}
+        <div className="min-w-[320px]">
+          {roots.map(r => <Tree key={r.id} id={r.id} />)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------
+ * CRUD de Especies
+ * -------------------------------------------*/
+
+function SpeciesForm({ initial, onSubmit, statOptions }: { initial?: Species; onSubmit: (s: Species) => void; statOptions: string[] }) {
+  const [nombre, setNombre] = useState(initial?.nombre ?? "");
+  const [descripcion, setDescripcion] = useState(initial?.descripcion ?? "");
+  const [allowMind, setAllowMind] = useState<boolean>(initial?.allowMind ?? true);
+  const [mods, setMods] = useState<SpeciesBaseMod[]>(initial?.baseMods ?? []);
+  const [equivText, setEquivText] = useState<string>(JSON.stringify(initial?.equivalencias ?? {}, null, 2));
+
+  function addMod() { setMods(prev => [...prev, { stat: statOptions[0] ?? "Fuerza", modo: "Puntos", cantidad: 1 }]); }
+  function updateMod(i: number, patch: Partial<SpeciesBaseMod>) {
+    setMods(prev => prev.map((m, idx) => idx === i ? { ...m, ...patch } : m));
+  }
+  function removeMod(i: number) { setMods(prev => prev.filter((_, idx) => idx !== i)); }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    let equivalencias: Record<string, Equivalencia> = {};
+    try { equivalencias = JSON.parse(equivText || "{}"); }
+    catch { alert("Equivalencias debe ser JSON válido"); return; }
+
+    const out: Species = {
+      id: initial?.id ?? (globalThis.crypto?.randomUUID?.() ?? uid("spec")),
+      nombre: nombre.trim(),
+      descripcion,
+      allowMind,
+      baseMods: mods,
+      equivalencias,
+    };
+    onSubmit(out);
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <Field label="Nombre"><Input value={nombre} onChange={(e)=>setNombre(e.target.value)} placeholder="Ej: Dragón, Uzumaki, Humano"/></Field>
+        <Field label="Puede usar Mente">
+          <div className="flex items-center gap-2">
+            <Switch checked={allowMind} onCheckedChange={setAllowMind}/>
+            <span className="text-sm opacity-80">{allowMind ? "Sí" : "No"}</span>
+          </div>
+        </Field>
+      </div>
+
+      <Field label="Descripción"><Textarea value={descripcion} onChange={(e)=>setDescripcion(e.target.value)} className="min-h-[80px]"/></Field>
+
+      <Section title="Modificadores base por especie">
+        <div className="space-y-2">
+          {mods.map((m, i) => (
+            <div key={i} className="grid grid-cols-12 gap-2 items-end">
+              <div className="col-span-4">
+                <Label>Stat</Label>
+                <Select value={String(m.stat)} onValueChange={(v)=>updateMod(i, { stat: v })}>
+                  <SelectTrigger><SelectValue/></SelectTrigger>
+                  <SelectContent className="max-h-60 overflow-auto">
+                    {statOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-3">
+                <Label>Modo</Label>
+                <Select value={m.modo} onValueChange={(v)=>updateMod(i, { modo: v as any })}>
+                  <SelectTrigger><SelectValue/></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Puntos">Puntos</SelectItem>
+                    <SelectItem value="Porcentaje">Porcentaje</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-3">
+                <Label>Cantidad</Label>
+                <Input inputMode="numeric" type="number" value={m.cantidad} onChange={(e)=>updateMod(i, { cantidad: parseFloat(e.target.value || "0") })}/>
+              </div>
+              <div className="col-span-2">
+                <Button type="button" variant="destructive" onClick={()=>removeMod(i)} className="w-full"><Trash2 className="w-4 h-4"/></Button>
+              </div>
+            </div>
+          ))}
+          <Button type="button" variant="outline" onClick={addMod} className="gap-2"><Plus className="w-4 h-4"/>Añadir modificador</Button>
+        </div>
+      </Section>
+
+      <Field label="Equivalencias (JSON)">
+        <Textarea value={equivText} onChange={(e)=>setEquivText(e.target.value)} className="min-h-[140px]" />
+      </Field>
+
+      <div className="flex justify-end gap-2">
+        <Button type="submit" className="gap-2"><Save className="w-4 h-4"/>Guardar especie</Button>
+      </div>
+    </form>
+  );
+}
+
+/* ---------------------------------------------
+ * Leaderboard sencillo
+ * -------------------------------------------*/
+
 function Leaderboard({ characters, bonuses, statOptions }: { characters: Character[]; bonuses: Bonus[]; statOptions: string[] }) {
   const [stat, setStat] = useState<string>(statOptions[0] ?? "Fuerza");
   const [useEffective, setUseEffective] = useState(true);
@@ -727,27 +1018,75 @@ function Leaderboard({ characters, bonuses, statOptions }: { characters: Charact
   );
 }
 
+/* ---------------------------------------------
+ * APP principal
+ * -------------------------------------------*/
+
 export default function MiniApp() {
   const [store, setStore] = useState<Store>(EMPTY_STORE);
   const [tab, setTab] = useState("skills");
-  const [search, setSearch] = useState("");
   const [editingCharId, setEditingCharId] = useState<string | null>(null);
   const [editingBonusId, setEditingBonusId] = useState<string | null>(null);
   const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
+  const [editingSpeciesId, setEditingSpeciesId] = useState<string | null>(null);
 
+  // Cargar datos desde Supabase
   const loadData = useCallback(async () => {
-    const { data: skills } = await supabase.from("skills").select("*");
-    const { data: characters } = await supabase.from("characters").select("*");
-    const { data: evo_links } = await supabase.from("evo_links").select("*");
-    const { data: bonuses } = await supabase.from("bonuses").select("*");
-    const { data: extra_stats } = await supabase.from("extra_stats").select("*");
-    setStore({
-      skills: (skills ?? []).map((s: any) => ({ id: s.id, nombre: s.nombre, nivel: s.nivel, nivelMax: s.nivelMax, incremento: s.incremento, clase: s.clase, tier: s.tier, definicion: s.definicion, personajes: Array.isArray(s.personajes) ? s.personajes : [], })),
-      characters: (characters ?? []) as Character[],
-      evoLinks: (evo_links ?? []).map((e: any) => ({ from: e.from_skill, to: e.to_skill })) ?? [],
-      bonuses: (bonuses ?? []).map((b: any) => ({ id: b.id, nombre: b.nombre, descripcion: b.descripcion, objetivo: b.objetivo, modo: b.modo, cantidadPorNivel: b.cantidad_por_nivel, nivelMax: b.nivel_max, })) as Bonus[],
-      extraStats: (extra_stats ?? []).map((e: any) => e.name) ?? [],
-    });
+    try {
+      const { data: skills }       = await supabase.from("skills").select("*");
+      const { data: characters }   = await supabase.from("characters").select("*");
+      const { data: evo_links }    = await supabase.from("evo_links").select("*");
+      const { data: bonuses }      = await supabase.from("bonuses").select("*");
+      const { data: extra_stats }  = await supabase.from("extra_stats").select("*");
+      const { data: species, error: spErr } = await supabase
+        .from("species").select("*").order("nombre", { ascending: true });
+
+      if (spErr) console.error("[species] load error:", spErr);
+
+      setStore({
+        skills: (skills ?? []).map((s: any) => ({
+          id: s.id,
+          nombre: s.nombre,
+          nivel: s.nivel,
+          nivelMax: s.nivelMax,
+          incremento: s.incremento,
+          clase: s.clase,
+          tier: s.tier,
+          definicion: s.definicion,
+          personajes: Array.isArray(s.personajes) ? s.personajes : [],
+        })),
+
+        characters: (characters ?? []) as Character[],
+
+        evoLinks: (evo_links ?? []).map((e: any) => ({
+          from: e.from_skill,
+          to: e.to_skill,
+        })),
+
+        bonuses: (bonuses ?? []).map((b: any) => ({
+          id: b.id,
+          nombre: b.nombre,
+          descripcion: b.descripcion,
+          objetivo: b.objetivo,
+          modo: b.modo,
+          cantidadPorNivel: b.cantidad_por_nivel,
+          nivelMax: b.nivel_max,
+        })) as Bonus[],
+
+        extraStats: (extra_stats ?? []).map((e: any) => e.name) ?? [],
+
+        species: (species ?? []).map((s: any) => ({
+          id: s.id,
+          nombre: s.nombre,
+          descripcion: s.descripcion ?? "",
+          equivalencias: (s.equivalencias ?? {}) as Record<string, Equivalencia>,
+          allowMind: !!s.allow_mind,
+          baseMods: (s.base_mods ?? []) as SpeciesBaseMod[],
+        })),
+      });
+    } catch (err) {
+      console.error("loadData() error:", err);
+    }
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -755,8 +1094,8 @@ export default function MiniApp() {
   const skillsById = useMemo(() => Object.fromEntries(store.skills.map(s => [s.id, s])), [store.skills]);
   const statOptions = useMemo(() => Array.from(new Set<string>([...DEFAULT_STATS as any, ...store.extraStats])), [store.extraStats]);
 
+  // Export/Import local (JSON)
   function handleExport() { downloadJSON("registro-habilidades-personajes.json", store); }
-
   function handleImport(ev: React.ChangeEvent<HTMLInputElement>) {
     const file = ev.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
@@ -764,6 +1103,7 @@ export default function MiniApp() {
     reader.readAsText(file); ev.target.value = "";
   }
 
+  // Persistencia (Supabase)
   async function upsertSkill(s: Skill) {
     try {
       const id = isUUID(s.id) ? s.id : globalThis.crypto?.randomUUID?.() ?? uid("skill");
@@ -772,11 +1112,27 @@ export default function MiniApp() {
       await loadData();
     } catch (err: any) { alert("Error guardando habilidad: " + (err?.message ?? String(err))); }
   }
-
   async function deleteSkill(id: string) {
     const { error } = await supabase.from("skills").delete().eq("id", id);
     if (error) { alert("Error eliminando habilidad: " + error.message); return; }
     setStore(prev => ({ ...prev, skills: prev.skills.filter(s => s.id !== id), characters: prev.characters.map(ch => ({ ...ch, habilidades: ch.habilidades.filter(h => h.skillId !== id) })), evoLinks: prev.evoLinks.filter(l => l.from !== id && l.to !==id), }));
+  }
+
+  async function upsertBonus(b: Bonus) {
+    try {
+      const id = isUUID(b.id) ? b.id : globalThis.crypto?.randomUUID?.() ?? uid("bonus");
+      const { error } = await supabase.from("bonuses").upsert({
+        id, nombre: b.nombre, descripcion: b.descripcion,
+        objetivo: b.objetivo, modo: b.modo, cantidad_por_nivel: b.cantidadPorNivel, nivel_max: b.nivelMax,
+      });
+      if (error) { alert("Error guardando bonificación: " + error.message); return; }
+      await loadData();
+    } catch (err: any) { alert("Error guardando bonificación: " + (err?.message ?? String(err))); }
+  }
+  async function deleteBonus(id: string) {
+    const { error } = await supabase.from("bonuses").delete().eq("id", id);
+    if (error) return alert("Error eliminando bonificación: " + error.message);
+    setStore(prev => ({ ...prev, bonuses: prev.bonuses.filter(b => b.id !== id) }));
   }
 
   async function upsertCharacter(c: Character) {
@@ -787,236 +1143,198 @@ export default function MiniApp() {
       await loadData();
     } catch (err: any) { alert("Error guardando personaje: " + (err?.message ?? String(err))); }
   }
-
   async function deleteCharacter(id: string) {
     const { error } = await supabase.from("characters").delete().eq("id", id);
     if (error) return alert("Error eliminando personaje: " + error.message);
     setStore(prev => ({ ...prev, characters: prev.characters.filter(c => c.id !== id), skills: prev.skills.map(s => ({ ...s, personajes: s.personajes.filter(pid => pid !== id) })), }));
   }
 
-  async function upsertBonus(b: Bonus) {
+  async function upsertSpecies(s: Species) {
     try {
-      const id = isUUID(b.id) ? b.id : globalThis.crypto?.randomUUID?.() ?? uid("bonus");
-      const { data, error } = await supabase.from("bonuses").upsert({ id, nombre: b.nombre, descripcion: b.descripcion, objetivo: b.objetivo, modo: b.modo, cantidad_por_nivel: b.cantidadPorNivel, nivel_max: b.nivelMax, }).select().single();
-      if (error) return alert("Error guardando bonificación: " + error.message);
-      const saved: Bonus = { id: data!.id, nombre: data!.nombre, descripcion: data!.descripcion, objetivo: data!.objetivo, modo: data!.modo, cantidadPorNivel: data!.cantidad_por_nivel, nivelMax: data!.nivel_max };
-      setStore(prev => { const exists = prev.bonuses.some(x => x.id === saved.id); const bonuses = exists ? prev.bonuses.map(x => (x.id === saved.id ? saved : x)) : [...prev.bonuses, saved]; return { ...prev, bonuses }; });
-    } catch (err: any) { alert("Error guardando bonificación: " + (err?.message ?? String(err))); }
+      const id = isUUID(s.id) ? s.id : globalThis.crypto?.randomUUID?.() ?? uid("spec");
+      const { error } = await supabase.from("species").upsert({
+        id, nombre: s.nombre, descripcion: s.descripcion, equivalencias: s.equivalencias, allow_mind: s.allowMind, base_mods: s.baseMods ?? []
+      });
+      if (error) { alert("Error guardando especie: " + error.message); return; }
+      await loadData();
+    } catch (err: any) { alert("Error guardando especie: " + (err?.message ?? String(err))); }
+  }
+  async function deleteSpecies(id: string) {
+    const { error } = await supabase.from("species").delete().eq("id", id);
+    if (error) return alert("Error eliminando especie: " + error.message);
+    await loadData();
   }
 
-  async function deleteBonus(id: string) {
-    const { error } = await supabase.from("bonuses").delete().eq("id", id);
-    if (error) return alert("Error eliminando bonificación: " + error.message);
-    setStore(prev => ({ ...prev, bonuses: prev.bonuses.filter(b => b.id !== id), characters: prev.characters.map(ch => ({ ...ch, bonos: ch.bonos?.filter(bb => bb.bonusId !== id) ?? [] })), }));
-  }
-
-  async function addExtraStat(name: string) {
-    const { error } = await supabase.from("extra_stats").upsert({ name });
-    if (error) { alert("Error añadiendo stat: " + error.message); return; }
-    setStore(prev => prev.extraStats.includes(name) ? prev : { ...prev, extraStats: [...prev.extraStats, name] });
-  }
-
-  const filteredSkills = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return store.skills;
-    return store.skills.filter(s => (s.nombre.toLowerCase().includes(q) || s.definicion.toLowerCase().includes(q) || s.clase.toLowerCase().includes(q) || s.tier.toLowerCase().includes(q)));
-  }, [store.skills, search]);
-
-  const filteredChars = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return store.characters;
-    return store.characters.filter(c => (c.nombre.toLowerCase().includes(q) || c.especie.toLowerCase().includes(q) || c.descripcion.toLowerCase().includes(q)));
-  }, [store.characters, search]);
-
-  const filteredBonuses = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return store.bonuses;
-    return store.bonuses.filter(b => (b.nombre.toLowerCase().includes(q) || b.descripcion.toLowerCase().includes(q) || String(b.objetivo).toLowerCase().includes(q)));
-  }, [store.bonuses, search]);
-
-  async function addEvoLink(a: string, b: string) {
-    const { error } = await supabase.from("evo_links").upsert({ from_skill: a, to_skill: b });
-    if (error) { alert("Error creando vínculo de evolución: " + error.message); return; }
-    setStore(prev => { const exists = prev.evoLinks.some(l => l.from === a && l.to === b); if (exists) return prev; return { ...prev, evoLinks: [...prev.evoLinks, { from: a, to: b }] }; });
-  }
-
-  // --- UI helpers (responsive) ---
-  const editingChar = useMemo(() => store.characters.find(c => c.id === editingCharId) || undefined, [store.characters, editingCharId]);
-  const editingBonus = useMemo(() => store.bonuses.find(b => b.id === editingBonusId) || undefined, [store.bonuses, editingBonusId]);
-  const editingSkill = useMemo(() => store.skills.find(s => s.id === editingSkillId) || undefined, [store.skills, editingSkillId]);
-
-  function clearEdits() { setEditingSkillId(null); setEditingBonusId(null); setEditingCharId(null); }
+  const editingChar   = store.characters.find(c => c.id === editingCharId);
+  const editingBonus  = store.bonuses.find(b => b.id === editingBonusId);
+  const editingSkill  = store.skills.find(s => s.id === editingSkillId);
+  const editingSpec   = store.species.find(s => s.id === editingSpeciesId);
 
   return (
-    <div className="min-h-screen w-full bg-white">
-      <div className="mx-auto max-w-6xl px-3 sm:px-4 md:px-6 lg:px-8 py-3 md:py-6">
-        {/* Header sticky con buscador + acciones para móvil */}
-        <div className="sticky top-0 z-40 bg-white/85 backdrop-blur border-b">
-          <div className="flex flex-col gap-2 py-2">
-            <div className="flex items-center justify-between gap-2">
-              <h1 className="text-xl md:text-3xl font-semibold tracking-tight">Registro de Habilidades & Personajes</h1>
-              <div className="hidden sm:flex items-center gap-2">
-                <Input type="file" accept="application/json" onChange={handleImport} className="w-44" />
-                <Button variant="outline" onClick={handleExport} className="gap-2"><Download className="w-4 h-4"/>Exportar</Button>
-                <Button variant="outline" onClick={() => {
-                  const sk1: Skill = { id: uid("skill"), nombre: "Asedio Carmesí del Dragón", nivel: 1, nivelMax: 5, incremento: "+120% daño / +30% alcance", clase: "Activa", tier: "S" as Tier, definicion: "Estallido ofensivo a gran escala.", personajes: [] };
-                  const sk2: Skill = { id: uid("skill"), nombre: "Marca de Protección", nivel: 1, nivelMax: 3, incremento: "+25% mitigación", clase: "Pasiva", tier: "A+" as Tier, definicion: "Protege aliados cercanos.", personajes: [] };
-                  const sk3: Skill = { id: uid("skill"), nombre: "Paso de la Bestia Fantasma", nivel: 1, nivelMax: 5, incremento: "+40% movilidad", clase: "Crecimiento", tier: "S-" as Tier, definicion: "Movilidad y post-ataque.", personajes: [] };
-                  const b1: Bonus = { id: uid("bonus"), nombre: "Entrenamiento Fuerza", descripcion: "+5 puntos de Fuerza por nivel", objetivo: "Fuerza", modo: "Puntos", cantidadPorNivel: 5, nivelMax: 10 };
-                  const b2: Bonus = { id: uid("bonus"), nombre: "Bendición Vital", descripcion: "+2% Vitalidad por nivel", objetivo: "Vitalidad", modo: "Porcentaje", cantidadPorNivel: 2, nivelMax: 20 };
-                  const ch1: Character = { id: uid("char"), nombre: "Naruto", especie: "Dragón-Uzumaki", descripcion: "Líder de Uzushiogakure.", nivel: 1, stats: { Fuerza:{ valor:100, rango: classifyStat(100).sub }, Resistencia:{ valor:100, rango: classifyStat(100).sub }, Destreza:{ valor:100, rango: classifyStat(100).sub }, Mente:{ valor:150, rango: classifyStat(150).sub }, Vitalidad:{ valor:100, rango: classifyStat(100).sub } }, habilidades: [], bonos: [] };
-                  setStore({ skills: [sk1, sk2, sk3], characters: [ch1], evoLinks: [{ from: sk1.id, to: sk3.id }], bonuses: [b1,b2], extraStats: [] });
-                }} className="gap-2"><Wand2 className="w-4 h-4"/>Demo</Button>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Input placeholder="Buscar (nombre, clase, tier, especie)" value={search} onChange={(e) => setSearch(e.target.value)} />
-              <Tabs value={tab} onValueChange={setTab} className="hidden md:block">
-                <TabsList>
-                  <TabsTrigger value="skills">Habilidades</TabsTrigger>
-                  <TabsTrigger value="chars">Personajes</TabsTrigger>
-                  <TabsTrigger value="bonos">Bonificaciones</TabsTrigger>
-                  <TabsTrigger value="evo">Síntesis/Evolución</TabsTrigger>
-                  <TabsTrigger value="rank">Rankings</TabsTrigger>
-                </TabsList>
-              </Tabs>
-              {/* Botón limpiar edición (móvil/desktop) */}
-              {(editingCharId || editingBonusId || editingSkillId) && (
-                <Button variant="ghost" size="icon" onClick={clearEdits} title="Cancelar edición"><X className="w-4 h-4"/></Button>
-              )}
-            </div>
-          </div>
-          {/* Tabs móviles (full width) */}
-          <Tabs value={tab} onValueChange={setTab} className="md:hidden">
-            <TabsList className="w-full">
-              <TabsTrigger value="skills" className="flex-1">Habilidades</TabsTrigger>
-              <TabsTrigger value="chars" className="flex-1">Personajes</TabsTrigger>
-              <TabsTrigger value="bonos" className="flex-1">Bonos</TabsTrigger>
-              <TabsTrigger value="evo" className="flex-1">Evolución</TabsTrigger>
-              <TabsTrigger value="rank" className="flex-1">Rank</TabsTrigger>
-            </TabsList>
-          </Tabs>
-          {/* Barra de acciones compacta para móvil */}
-          <div className="sm:hidden flex items-center gap-2 px-1 py-2 border-t">
-            <Input type="file" accept="application/json" onChange={handleImport} className="w-full" />
-            <Button variant="outline" size="sm" onClick={handleExport} className="gap-2"><Download className="w-4 h-4"/></Button>
-            <Button variant="outline" size="sm" onClick={() => alert('Usa el botón Demo en desktop para cargar datos ejemplo.') } className="gap-2"><Wand2 className="w-4 h-4"/></Button>
-          </div>
-        </div>
-
-        {/* Contenido principal */}
-        <div className="mt-3 md:mt-6 space-y-4">
-          {/* SKILLS */}
-          {tab === "skills" && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Section title={editingSkill ? `Editar Habilidad — ${editingSkill.nombre}` : "Nueva / Editar Habilidad"} actions={editingSkill && (<Button variant="outline" onClick={() => setEditingSkillId(null)}>Cancelar</Button>)}>
-                <SkillForm
-                key={editingSkill?.id ?? "new-skill"}
-                initial={editingSkill}
-                characters={store.characters}
-                onSubmit={async (s) => { await upsertSkill(s); setEditingSkillId(null); await loadData(); }}
-              />
-              </Section>
-
-              <Section title={`Listado de Habilidades (${filteredSkills.length})`}>
-                <div className="text-xs opacity-70 mb-2">Campos: Nivel, Nivel Máx, Incremento, Clase, Tier, Definición, Personajes.</div>
-                <div className="divide-y overflow-x-auto">
-                  {filteredSkills.length === 0 && <div className="text-sm opacity-70">No hay habilidades aún.</div>}
-                  {filteredSkills.map((s) => (<SkillRow key={s.id} s={s} onEdit={() => setEditingSkillId(s.id)} onDelete={() => deleteSkill(s.id)} />))}
-                </div>
-              </Section>
-
-              <Section title="Editor de Síntesis/Evolución">
-                <EvolutionEditor skills={store.skills} links={store.evoLinks} onAdd={(a, b) => addEvoLink(a, b)} />
-              </Section>
-            </div>
-          )}
-
-          {/* CHARACTERS */}
-          {tab === "chars" && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Section title={editingChar ? `Editar Personaje — ${editingChar.nombre}` : "Nuevo / Editar Personaje"} actions={editingChar && (<Button variant="outline" onClick={() => setEditingCharId(null)}>Cancelar</Button>)}>
-                <CharacterForm
-                key={editingChar?.id ?? "new-char"}
-                skills={store.skills}
-                bonuses={store.bonuses}
-                onSubmit={(c) => upsertCharacter(c)}
-                initial={editingChar}
-                extraStats={store.extraStats}
-              />
-              </Section>
-
-              <Section title={`Listado de Personajes (${filteredChars.length})`}>
-                <div className="divide-y">
-                  {filteredChars.length === 0 && <div className="text-sm opacity-70">No hay personajes aún.</div>}
-                  {filteredChars.map((c) => (
-                    <CharacterRow key={c.id} c={c} skillsById={skillsById} bonuses={store.bonuses} onEdit={() => setEditingCharId(c.id)} onDelete={() => deleteCharacter(c.id)} />
-                  ))}
-                </div>
-              </Section>
-
-              <Section title="Estadísticas Globales (añadir nuevas)">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label>Añadir estadística global</Label>
-                    <div className="flex gap-2">
-                      <Input id="new-global-stat" placeholder="Ej: Chakra, Fe, Suerte" />
-                      <Button variant="outline" onClick={() => {
-                        const el = document.getElementById("new-global-stat") as HTMLInputElement | null;
-                        const name = el?.value.trim();
-                        if (!name) return; addExtraStat(name); if (el) el.value = "";
-                      }} className="gap-2"><Plus className="w-4 h-4"/>Añadir</Button>
-                    </div>
-                    <div className="text-xs opacity-70">Estas stats aparecerán en el editor de cada personaje.</div>
-                  </div>
-                  <div>
-                    <Label>Actuales</Label>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {[...DEFAULT_STATS, ...store.extraStats].map(s => (<Badge key={s as string} className="rounded-2xl">{s as string}</Badge>))}
-                    </div>
-                  </div>
-                </div>
-              </Section>
-            </div>
-          )}
-
-          {/* BONUSES */}
-          {tab === "bonos" && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Section title={editingBonus ? `Editar Bonificación — ${editingBonus.nombre}` : "Nueva / Editar Bonificación"} actions={editingBonus && (<Button variant="outline" onClick={() => setEditingBonusId(null)}>Cancelar</Button>)}>
-                <BonusForm
-                key={editingBonus?.id ?? "new-bonus"}
-                initial={editingBonus}
-                statOptions={statOptions}
-                onSubmit={async (b) => { await upsertBonus(b); setEditingBonusId(null); }}
-              />
-              </Section>
-
-              <Section title={`Listado de Bonificaciones (${filteredBonuses.length})`}>
-                <div className="divide-y">
-                  {filteredBonuses.length === 0 && <div className="text-sm opacity-70">No hay bonificaciones aún.</div>}
-                  {filteredBonuses.map((b) => (
-                    <BonusRow key={b.id} b={b} onEdit={() => setEditingBonusId(b.id)} onDelete={() => deleteBonus(b.id)} />
-                  ))}
-                </div>
-              </Section>
-            </div>
-          )}
-
-          {/* EVOLUTIONS quick view */}
-          {tab === "evo" && (
-            <Section title="Navegador de Síntesis / Evoluciones">
-              <EvolutionEditor skills={store.skills} links={store.evoLinks} onAdd={(a, b) => addEvoLink(a, b)} />
-            </Section>
-          )}
-
-          {tab === "rank" && (
-            <Section title="Rankings por Estadística">
-              <Leaderboard characters={store.characters} bonuses={store.bonuses} statOptions={statOptions} />
-            </Section>
-          )}
+    <div className="max-w-7xl mx-auto p-3 md:p-6 space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-2xl md:text-3xl font-bold">Sistema de Personajes • Habilidades • Especies</h1>
+        <div className="flex gap-2 items-center">
+          <Button variant="outline" onClick={() => downloadJSON("backup-local.json", store)}>Exportar JSON</Button>
+          <label className="inline-flex">
+            <input type="file" accept="application/json" className="hidden" onChange={handleImport} />
+            <Button variant="outline">Importar JSON</Button>
+          </label>
         </div>
       </div>
+
+      {/* Pestañas principales */}
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="flex flex-wrap gap-2">
+          <TabsTrigger value="skills">Habilidades</TabsTrigger>
+          <TabsTrigger value="bonuses">Bonificaciones</TabsTrigger>
+          <TabsTrigger value="characters">Personajes</TabsTrigger>
+          <TabsTrigger value="species">Especies</TabsTrigger>
+          <TabsTrigger value="leaderboard">Rankings</TabsTrigger>
+        </TabsList>
+
+        {/* HABILIDADES */}
+        <TabsContent value="skills" className="mt-4 space-y-3">
+          <Section
+            title={editingSkill ? "Editar habilidad" : "Nueva habilidad"}
+            actions={editingSkill && <Button variant="outline" onClick={()=>setEditingSkillId(null)}>Cancelar</Button>}
+          >
+            <SkillForm
+              initial={editingSkill ?? undefined}
+              onSubmit={(s)=>{ setEditingSkillId(null); upsertSkill(s); }}
+              characters={store.characters}
+            />
+          </Section>
+
+          <Section title={`Listado de habilidades (${store.skills.length})`}>
+            <div className="divide-y">
+              {store.skills.map(s => (
+                <SkillRow
+                  key={s.id}
+                  s={s}
+                  onEdit={()=>setEditingSkillId(s.id)}
+                  onDelete={()=>deleteSkill(s.id)}
+                />
+              ))}
+            </div>
+          </Section>
+
+          <Section title="Evoluciones / Síntesis">
+            <EvolutionEditor
+              skills={store.skills}
+              links={store.evoLinks}
+              onAdd={async (from, to) => {
+                // Guardar en tabla 'evo_links' si existe
+                try {
+                  const { error } = await supabase.from("evo_links").upsert({ from_skill: from, to_skill: to });
+                  if (error) { alert("Error guardando vínculo: " + error.message); return; }
+                  await loadData();
+                } catch (err: any) { alert("Error guardando vínculo: " + (err?.message ?? String(err))); }
+              }}
+            />
+          </Section>
+        </TabsContent>
+
+        {/* BONIFICACIONES */}
+        <TabsContent value="bonuses" className="mt-4 space-y-3">
+          <Section
+            title={editingBonus ? "Editar bonificación" : "Nueva bonificación"}
+            actions={editingBonus && <Button variant="outline" onClick={()=>setEditingBonusId(null)}>Cancelar</Button>}
+          >
+            <BonusForm
+              initial={editingBonus ?? undefined}
+              onSubmit={(b)=>{ setEditingBonusId(null); upsertBonus(b); }}
+              statOptions={statOptions}
+            />
+          </Section>
+
+          <Section title={`Listado de bonificaciones (${store.bonuses.length})`}>
+            <div className="divide-y">
+              {store.bonuses.map(b => (
+                <BonusRow
+                  key={b.id}
+                  b={b}
+                  onEdit={()=>setEditingBonusId(b.id)}
+                  onDelete={()=>deleteBonus(b.id)}
+                />
+              ))}
+            </div>
+          </Section>
+        </TabsContent>
+
+        {/* PERSONAJES */}
+        <TabsContent value="characters" className="mt-4 space-y-3">
+          <Section
+            title={editingChar ? "Editar personaje" : "Nuevo personaje"}
+            actions={editingChar && <Button variant="outline" onClick={()=>setEditingCharId(null)}>Cancelar</Button>}
+          >
+            <CharacterForm
+              key={editingChar?.id ?? "new-char"}
+              skills={store.skills}
+              bonuses={store.bonuses}
+              onSubmit={(c) => { setEditingCharId(null); upsertCharacter(c); }}
+              initial={editingChar ?? undefined}
+              extraStats={store.extraStats}
+              species={store.species}
+            />
+          </Section>
+
+          <Section title={`Listado de personajes (${store.characters.length})`}>
+            <div className="divide-y">
+              {store.characters.map(c => (
+                <CharacterRow
+                  key={c.id}
+                  c={c}
+                  bonuses={store.bonuses}
+                  skillsById={skillsById}
+                  onEdit={()=>setEditingCharId(c.id)}
+                  onDelete={()=>deleteCharacter(c.id)}
+                />
+              ))}
+            </div>
+          </Section>
+        </TabsContent>
+
+        {/* ESPECIES */}
+        <TabsContent value="species" className="mt-4 space-y-3">
+          <Section
+            title={editingSpec ? "Editar especie" : "Nueva especie"}
+            actions={editingSpec && <Button variant="outline" onClick={()=>setEditingSpeciesId(null)}>Cancelar</Button>}
+          >
+            <SpeciesForm
+              initial={editingSpec ?? undefined}
+              onSubmit={(s)=>{ setEditingSpeciesId(null); upsertSpecies(s); }}
+              statOptions={statOptions}
+            />
+          </Section>
+
+          <Section title={`Listado de especies (${store.species.length})`}>
+            <div className="divide-y">
+              {store.species.map(sp => (
+                <div key={sp.id} className="py-2 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{sp.nombre}</div>
+                    <div className="text-xs opacity-70 truncate">
+                      {sp.allowMind ? "Mente: Sí" : "Mente: No"} · Mods: {sp.baseMods?.length ?? 0}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={()=>setEditingSpeciesId(sp.id)}>Editar</Button>
+                    <Button size="sm" variant="destructive" onClick={()=>deleteSpecies(sp.id)}><Trash2 className="w-4 h-4"/></Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Section>
+        </TabsContent>
+
+        {/* RANKINGS */}
+        <TabsContent value="leaderboard" className="mt-4 space-y-3">
+          <Section title="Ranking por estadística">
+            <Leaderboard characters={store.characters} bonuses={store.bonuses} statOptions={statOptions} />
+          </Section>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
