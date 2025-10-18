@@ -1446,69 +1446,6 @@ async function deleteSpecies(idToDelete: string) {
         <Button variant="outline" onClick={() => setEditingBonusId(null)}>Cancelar</Button>
       )}
     >
-    {/* NUEVO: Formulario Multi-objetivo (hasta 5 consecuencias) */}
-    {/* inserted form duplicate below */}
-{/* BEGIN: temporarily commenting duplicated species form pasted under bonuses */}
-{/*
-<form onSubmit={handleSubmit} className="space-y-3">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <Field label="Nombre"><Input value={nombre} onChange={(e)=>setNombre(e.target.value)} placeholder="Ej: Dragón, Uzumaki, Humano"/></Field>
-        <Field label="Puede usar Mente">
-          <div className="flex items-center gap-2">
-            <Switch checked={allowMind} onCheckedChange={setAllowMind}/>
-            <span className="text-sm opacity-80">{allowMind ? "Sí" : "No"}</span>
-          </div>
-        </Field>
-      </div>
-      <Field label="Descripción"><Textarea value={descripcion} onChange={(e)=>setDescripcion(e.target.value)} className="min-h-[80px]"/></Field>
-
-      <Section title="Modificadores base por especie">
-        <div className="space-y-2">
-          {mods.map((m, i) => (
-            <div key={i} className="grid grid-cols-12 gap-2 items-end">
-              <div className="col-span-4">
-                <Label>Stat</Label>
-                <Select value={String(m.stat)} onValueChange={(v)=>updateMod(i, { stat: v })}>
-                  <SelectTrigger><SelectValue/></SelectTrigger>
-                  <SelectContent className="max-h-60 overflow-auto">
-                    {statOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="col-span-3">
-                <Label>Modo</Label>
-                <Select value={m.modo} onValueChange={(v)=>updateMod(i, { modo: v as any })}>
-                  <SelectTrigger><SelectValue/></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Puntos">Puntos</SelectItem>
-                    <SelectItem value="Porcentaje">Porcentaje</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="col-span-3">
-                <Label>Cantidad</Label>
-                <Input inputMode="numeric" type="number" value={m.cantidad} onChange={(e)=>updateMod(i, { cantidad: parseFloat(e.target.value || "0") })}/>
-              </div>
-              <div className="col-span-2">
-                <Button type="button" variant="destructive" onClick={()=>removeMod(i)} className="w-full"><Trash2 className="w-4 h-4"/></Button>
-              </div>
-            </div>
-          ))}
-          <Button type="button" variant="outline" onClick={addMod} className="gap-2"><Plus className="w-4 h-4"/>Añadir modificador</Button>
-        </div>
-      </Section>
-
-      <Field label="Equivalencias (JSON)">
-        <Textarea value={equivText} onChange={(e)=>setEquivText(e.target.value)} className="min-h-[140px]" />
-      </Field>
-
-      <div className="flex justify-end gap-2">
-        <Button type="submit" className="gap-2"><Save className="w-4 h-4"/>Guardar especie</Button>
-      </div>
-    </form>
-*/}
-{/* END: temporarily commenting duplicated species form pasted under bonuses */}
-{/* ...tu formulario aquí... */}
   </Section>
 {/* moved: premature </TabsContent> for bonuses */}
 
@@ -1550,17 +1487,6 @@ async function deleteSpecies(idToDelete: string) {
   }}
   className="space-y-3"
 >
-  {/* CONFIG → Estadísticas globales */}
-{/* MOVED: config tab (was nested under bonuses)
-<TabsContent value="config" className="mt-4 space-y-3">
-  <Section title="Estadísticas globales (para todos los personajes)">
-    <GlobalStatsEditor
-      initial={store.extraStats}
-      onSaved={async () => { await loadData(); }}
-    />
-  </Section>
-</TabsContent>
-END MOVED */}
   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
     <Field label="Nombre"><Input name="nombre_multi" defaultValue={editingBonus?.objetivos?.length ? editingBonus?.nombre ?? "" : ""} /></Field>
     <Field label="Nivel Máx"><Input name="nivelMax_multi" type="number" min={1} defaultValue={editingBonus?.objetivos?.length ? (editingBonus?.nivelMax ?? 5) : 5} /></Field>
