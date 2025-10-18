@@ -265,6 +265,18 @@ function Section({ title, children, actions }: { title: string; children: React.
   );
 }
 
+async function loadConfigExtraStats(): Promise<string[]> {
+  const { data, error } = await supabase.from("app_config").select("data").eq("id", "global").single();
+  if (error || !data?.data) return [];
+  return Array.isArray(data.data.extraStats) ? data.data.extraStats : [];
+}
+
+async function saveConfigExtraStats(extra: string[]) {
+  const payload = { extraStats: Array.from(new Set(extra.map(s => s.trim()).filter(Boolean))) };
+  await supabase.from("app_config").upsert({ id: "global", data: payload });
+}
+
+
 // ---- Species utils ----
 export function sortEspeciesAuto(especies: string[]) {
   if (!Array.isArray(especies) || especies.length === 0) return [];
@@ -806,7 +818,7 @@ function CharacterForm({
   const [nivel, setNivel] = useState<number>(initial?.nivel ?? 1);
   const [stats, setStats] = useState<Character["stats"]>(initial?.stats ?? {});
   const [bonos, setBonos] = useState<Character["bonos"]>(initial?.bonos ?? []);
-	// ✅ EDITADO AQUÍ: estado multi-especie por ID
+	
 	const [especiesSel, setEspeciesSel] = useState<string[]>(
 		sortEspeciesAuto(
 			(initial?.especies && Array.isArray(initial.especies) && initial.especies.length
@@ -840,7 +852,7 @@ function CharacterForm({
   function handleSubmit(e: React.FormEvent) {
 	e.preventDefault();
 
-	// ✅ EDITADO AQUÍ: guardar multi-especie por ID, principal + Mente auto
+	
 	const uniq = uniqEspecies(especiesSel).slice(0, 10);
 	const byId = new Map(species.map(s => [s.id, s]));
 	const principal = uniq[0] ?? undefined;
@@ -882,7 +894,6 @@ function CharacterForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Field label="Nombre"><Input value={nombre} onChange={(e) => setNombre(e.target.value)} /></Field>
-        // ✅ EDITADO AQUÍ: selector multi-especie
 <Field label="Especies (máx 10)">
 	<SpeciesMultiSelectAccordion
 		allSpecies={speciesOptions}
@@ -965,7 +976,6 @@ function Leaderboard({ characters, bonuses, species }: { characters: Character[]
       const eff = calcEffectiveStat(c, stat as StatKey, bonuses, species);
       const value = useEffective ? eff : base;
       const cls = classifyStat(value);
-      // ✅ EDITADO AQUÍ: especie principal por nombre
       const principalId = c.especies?.[0] ?? c.especie;
       const principalName = species.find(s => s.id === principalId)?.nombre ?? "";
       return { id: c.id, nombre: c.nombre, especie: principalName, value, cls: cls.sub };
@@ -1022,7 +1032,6 @@ function Leaderboard({ characters, bonuses, species }: { characters: Character[]
 
 /* ================= App ================= */
 
-// ✅ EDITADO AQUÍ: Modal de Ficha de Personaje (táctico verde, solo lectura)
 function CharacterSheetModal({
 	open,
 	onClose,
@@ -1173,36 +1182,42 @@ export default function Page() {
   const [editingBonusId, setEditingBonusId] = useState<string | null>(null);
   const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
   
-	// ✅ EDITADO AQUÍ: estado para modal de ficha
+
 	const [sheetOpen, setSheetOpen] = useState(false);
 	const [sheetCharId, setSheetCharId] = useState<string | null>(null);
-const [editingSpeciesId, setEditingSpeciesId] = useState<string | null>(null);
+  const [editingSpeciesId, setEditingSpeciesId] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
-    try {
-      const { data: skills }     = await supabase.from("skills").select("*");
-      const { data: evoLinks }   = await supabase.from("skill_evo_links").select("*");
-      const { data: characters } = await supabase.from("characters").select("*");
-      const { data: bonuses }    = await supabase.from("bonuses").select("*");
-      const { data: species }    = await supabase.from("species").select("*").order("nombre", { ascending: true });
-      setStore({
-        skills: (skills ?? []) as any,
-        evoLinks: (evoLinks ?? []) as any,
-        characters: (characters ?? []).map((c: any) => ({
+ const loadData = useCallback(async () => {
+  try {
+    const { data: skills }     = await supabase.from("skills").select("*");
+    const { data: evoLinks }   = await supabase.from("skill_evo_links").select("*");
+    const { data: characters } = await supabase.from("characters").select("*");
+    const { data: bonuses }    = await supabase.from("bonuses").select("*");
+    const { data: species }    = await supabase.from("species").select("*").order("nombre", { ascending: true });
+    const extraStats           = await loadConfigExtraStats();
+
+    setStore({
+      skills: (skills ?? []) as any,
+      evoLinks: (evoLinks ?? []) as any,
+      characters: (characters ?? []).map((c: any) => ({
         ...c,
-        especies: Array.isArray(c.especies)
-         ? c.especies.slice(0, 10) 
-        : c.especie
-         ? [c.especie] 
-         : [],
+        especies: Array.isArray(c.especies) ? c.especies.slice(0, 10) : (c.especie ? [c.especie] : []),
       })) as any,
-
-        bonuses: (bonuses ?? []) as any,
-        extraStats: [],
-        species: (species ?? []).map((s: any) => ({ id: s.id, nombre: s.nombre, descripcion: s.descripcion ?? "", equivalencias: (s.equivalencias ?? {}) as Record<string, Equivalencia>, allowMind: !!s.allow_mind, baseMods: (s.base_mods ?? []) as SpeciesBaseMod[] })),
-      });
-    } catch (err) { console.error("loadData() error:", err); }
-  }, []);
+      bonuses: (bonuses ?? []) as any,
+      extraStats,
+      species: (species ?? []).map((s: any) => ({
+        id: s.id,
+        nombre: s.nombre,
+        descripcion: s.descripcion ?? "",
+        equivalencias: (s.equivalencias ?? {}) as Record<string, any>,
+        allowMind: !!s.allow_mind,
+        baseMods: (s.base_mods ?? []) as any[],
+      })),
+    });
+  } catch (err) {
+    console.error("loadData() error:", err);
+  }
+}, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -1467,7 +1482,6 @@ async function deleteSpecies(idToDelete: string) {
                   </div>
                   <div className="col-span-6 sm:col-span-2 flex justify-end gap-2">
                     <Button size="sm" onClick={()=>{ setSheetCharId(c.id); setSheetOpen(true); }}>Ver Ficha</Button>
-                    // ✅ EDITADO AQUÍ: botón ver ficha
                     <Button size="sm" variant="outline" onClick={()=>setEditingCharId(c.id)}>Editar</Button>
                     <Button size="sm" variant="destructive" onClick={()=>deleteCharacter(c.id)}><Trash2 className="w-4 h-4"/></Button>
                   </div>
@@ -1507,7 +1521,6 @@ async function deleteSpecies(idToDelete: string) {
           </Section>
         </TabsContent>
       
-      {/* ✅ EDITADO AQUÍ: render modal de ficha */}
       <CharacterSheetModal
         open={sheetOpen}
         onClose={()=>{ setSheetOpen(false); setSheetCharId(null); }}
