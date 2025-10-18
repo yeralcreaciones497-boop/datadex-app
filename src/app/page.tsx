@@ -488,14 +488,21 @@ function StatEditor({
 
           // ---- Mente derivada (equilibrio entre INT y SAB) ----
           const isMind = k.toLowerCase() === "mente";
-          // Obtiene Inteligencia y Sabiduría aunque tengan minúsculas o mayúsculas diferentes
-          const intelKey = Object.keys(stats).find(s => s.toLowerCase() === "inteligencia") ?? "Inteligencia";
-          const sabKey   = Object.keys(stats).find(s => s.toLowerCase().startsWith("sabid")) ?? "Sabiduría";
+          /// Busca la clave "Inteligencia" sin importar mayúsculas
+            const intelKey =
+              Object.keys(stats).find((s) => s.toLowerCase() === "inteligencia") ?? "Inteligencia";
 
-          const intelVal = stats[intelKey]?.valor ?? 0;
-          const sabVal   = stats[sabKey]?.valor ?? 0;
+            // Busca la clave "Sabiduría/Sabiduria" sin importar tilde o mayúsculas
+            const sabKey =
+              Object.keys(stats).find((s) => {
+                  const ls = s.toLowerCase();
+            return ls === "sabiduría" || ls === "sabiduria" || ls.startsWith("sabid");
+            }) ?? "Sabiduría";
 
-          const autoMind = computeMindFromWisdomAndInt(intelVal, sabVal);
+            const intelVal = stats[intelKey]?.valor ?? 0;
+            const sabVal   = stats[sabKey]?.valor ?? 0;
+
+            const autoMind = computeMindFromWisdomAndInt(intelVal, sabVal);
 
           return (
             <Card key={k} className="p-3">
