@@ -123,16 +123,6 @@ type BonusMode = "Porcentaje" | "Puntos";
 
 type BonusTarget = { stat: StatKey; modo: BonusMode; cantidadPorNivel: number };
 
-type Equivalencia = { unidad: string; valorPorPunto: number };
-
-type Species = {
-  id: string;
-  nombre: string;
-  descripcion: string;
-  equivalencias: Record<string, Equivalencia>;
-};
-
-
 type Bonus = {
   id: string;
   nombre: string;
@@ -143,6 +133,18 @@ type Bonus = {
   cantidadPorNivel?: number; // legacy
   nivelMax: number;
 };
+
+
+type Equivalencia = { unidad: string; valorPorPunto: number };
+
+type Species = {
+  id: string;
+  nombre: string;
+  descripcion: string;
+  equivalencias: Record<string, Equivalencia>;
+};
+
+
 
 export type Character = {
   id: string;
@@ -176,17 +178,9 @@ type Store = {
   evoLinks: EvoLink[];
   bonuses: Bonus[];
   extraStats: string[];
-  species: Species[];
 };
 
-const EMPTY_STORE: Store = {
-  skills: [],
-  characters: [],
-  evoLinks: [],
-  bonuses: [],
-  extraStats: [],
-  species: [],
-};
+const EMPTY_STORE: Store = { skills: [], characters: [], evoLinks: [], bonuses: [], extraStats: [] };
 
 /**********************
  * Cálculos           *
@@ -754,66 +748,21 @@ export default function MiniApp() {
   const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
-  try {
-    const { data: skills }       = await supabase.from("skills").select("*");
-    const { data: characters }   = await supabase.from("characters").select("*");
-    const { data: evo_links }    = await supabase.from("evo_links").select("*");
-    const { data: bonuses }      = await supabase.from("bonuses").select("*");
-    const { data: extra_stats }  = await supabase.from("extra_stats").select("*");
-    const { data: species, error: spErr } = await supabase
-      .from("species")
-      .select("*")
-      .order("nombre", { ascending: true });
-
-    if (spErr) {
-      console.error("[species] load error:", spErr);
-    }
-
+    const { data: skills } = await supabase.from("skills").select("*");
+    const { data: characters } = await supabase.from("characters").select("*");
+    const { data: evo_links } = await supabase.from("evo_links").select("*");
+    const { data: bonuses } = await supabase.from("bonuses").select("*");
+    const { data: extra_stats } = await supabase.from("extra_stats").select("*");
+    const { data: species } = await supabase.from("species").select("*").order("nombre", { ascending: true });
     setStore({
-      skills: (skills ?? []).map((s: any) => ({
-        id: s.id,
-        nombre: s.nombre,
-        nivel: s.nivel,
-        nivelMax: s.nivelMax,
-        incremento: s.incremento,
-        clase: s.clase,
-        tier: s.tier,
-        definicion: s.definicion,
-        personajes: Array.isArray(s.personajes) ? s.personajes : [],
-      })),
-
+      skills: (skills ?? []).map((s: any) => ({ id: s.id, nombre: s.nombre, nivel: s.nivel, nivelMax: s.nivelMax, incremento: s.incremento, clase: s.clase, tier: s.tier, definicion: s.definicion, personajes: Array.isArray(s.personajes) ? s.personajes : [], })),
       characters: (characters ?? []) as Character[],
-
-      evoLinks: (evo_links ?? []).map((e: any) => ({
-        from: e.from_skill,
-        to: e.to_skill,
-      })),
-
-      bonuses: (bonuses ?? []).map((b: any) => ({
-        id: b.id,
-        nombre: b.nombre,
-        descripcion: b.descripcion,
-        objetivo: b.objetivo,
-        modo: b.modo,
-        cantidadPorNivel: b.cantidad_por_nivel,
-        nivelMax: b.nivel_max,
-      })) as Bonus[],
-
+      evoLinks: (evo_links ?? []).map((e: any) => ({ from: e.from_skill, to: e.to_skill })) ?? [],
+      bonuses: (bonuses ?? []).map((b: any) => ({ id: b.id, nombre: b.nombre, descripcion: b.descripcion, objetivo: b.objetivo, modo: b.modo, cantidadPorNivel: b.cantidad_por_nivel, nivelMax: b.nivel_max, })) as Bonus[],
       extraStats: (extra_stats ?? []).map((e: any) => e.name) ?? [],
-
-      species: (species ?? []).map((s: any) => ({
-        id: s.id,
-        nombre: s.nombre,
-        descripcion: s.descripcion ?? "",
-        equivalencias: (s.equivalencias ?? {}) as Record<string, Equivalencia>,
-      })),
+      species: (species ?? []).map((s: any) => ({ id: s.id, nombre: s.nombre, descripcion: s.descripcion ?? "", equivalencias: (s.equivalencias ?? {}) as Record<string, Equivalencia> })),
     });
-  } catch (err) {
-    console.error("loadData() error:", err);
-  }
-}, []);
-
-
+  }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -875,7 +824,24 @@ export default function MiniApp() {
     setStore(prev => ({ ...prev, bonuses: prev.bonuses.filter(b => b.id !== id), characters: prev.characters.map(ch => ({ ...ch, bonos: ch.bonos?.filter(bb => bb.bonusId !== id) ?? [] })), }));
   }
 
-  async function addExtraStat(name: string) {
+  async function addExtraStat(
+
+  async function upsertSpecies(s: Species) {
+    const id = s.id || (globalThis.crypto?.randomUUID?.() ?? uid("spec"));
+    const { error } = await supabase.from("species").upsert({
+      id, nombre: s.nombre, descripcion: s.descripcion, equivalencias: s.equivalencias,
+    });
+    if (error) { alert("Error guardando especie: " + error.message); return; }
+    await loadData();
+  }
+
+  async function deleteSpecies(id: string) {
+    const { error } = await supabase.from("species").delete().eq("id", id);
+    if (error) { alert("Error eliminando especie: " + error.message); return; }
+    setStore(prev => ({ ...prev, species: prev.species.filter(s => s.id !== id) }));
+  }
+
+name: string) {
     const { error } = await supabase.from("extra_stats").upsert({ name });
     if (error) { alert("Error añadiendo stat: " + error.message); return; }
     setStore(prev => prev.extraStats.includes(name) ? prev : { ...prev, extraStats: [...prev.extraStats, name] });
@@ -943,6 +909,7 @@ export default function MiniApp() {
                   <TabsTrigger value="bonos">Bonificaciones</TabsTrigger>
                   <TabsTrigger value="evo">Síntesis/Evolución</TabsTrigger>
                   <TabsTrigger value="rank">Rankings</TabsTrigger>
+                  <TabsTrigger value="species">Especies</TabsTrigger>
                 </TabsList>
               </Tabs>
               {/* Botón limpiar edición (móvil/desktop) */}
@@ -1075,12 +1042,119 @@ export default function MiniApp() {
             </Section>
           )}
 
-          {tab === "rank" && (
+          
+          {tab === "species" && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <Section title={editingSpeciesId ? "Editar Especie" : "Nueva Especie"} actions={editingSpeciesId && (<Button variant="outline" onClick={() => setEditingSpeciesId(null)}>Cancelar</Button>)}>
+                <SpeciesForm
+                  initial={store.species.find(s => s.id === editingSpeciesId) ?? undefined}
+                  statOptions={[...DEFAULT_STATS as any, ...store.extraStats]}
+                  onSubmit={async (s) => { await upsertSpecies(s); setEditingSpeciesId(null); }}
+                />
+              </Section>
+              <Section title={\`Listado de Especies (\${store.species.length})\`}>
+                <div className="divide-y">
+                  {store.species.length === 0 && <div className="text-sm opacity-70">No hay especies aún.</div>}
+                  {store.species.map((s) => (
+                    <SpeciesRow key={s.id} s={s} onEdit={() => setEditingSpeciesId(s.id)} onDelete={() => deleteSpecies(s.id)} />
+                  ))}
+                </div>
+              </Section>
+            </div>
+          )}
+{tab === "rank" && (
             <Section title="Rankings por Estadística">
               <Leaderboard characters={store.characters} bonuses={store.bonuses} statOptions={statOptions} />
             </Section>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+
+function SpeciesForm({ initial, onSubmit, statOptions }: { initial?: Species; onSubmit: (s: Species) => void; statOptions: string[]; }) {
+  const [nombre, setNombre] = useState(initial?.nombre ?? "");
+  const [descripcion, setDescripcion] = useState(initial?.descripcion ?? "");
+  const [eq, setEq] = useState<Record<string, Equivalencia>>(() => {
+    const base: Record<string, Equivalencia> = {};
+    statOptions.forEach(s => { base[s] = initial?.equivalencias?.[s] ?? { unidad: "", valorPorPunto: 0 }; });
+    return base;
+  });
+
+  function setEqField(stat: string, patch: Partial<Equivalencia>) {
+    setEq(prev => ({ ...prev, [stat]: { ...(prev[stat] || { unidad: "", valorPorPunto: 0 }), ...patch } }));
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    for (const s of statOptions) {
+      const it = eq[s];
+      if (!it || !it.unidad.trim() || !(it.valorPorPunto > 0)) {
+        alert(`Completa equivalencias para '${s}' (unidad y valorPorPunto > 0).`);
+        return;
+      }
+    }
+    const out: Species = { id: initial?.id ?? (globalThis.crypto?.randomUUID?.() ?? uid("spec")), nombre, descripcion, equivalencias: eq };
+    onSubmit(out);
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <Field label="Nombre de especie"><Input value={nombre} onChange={(e)=>setNombre(e.target.value)} placeholder="Ej: Humano, Uzumaki, Dragón" /></Field>
+        <Field label="Descripción"><Input value={descripcion} onChange={(e)=>setDescripcion(e.target.value)} placeholder="Opcional" /></Field>
+      </div>
+      <Section title="Equivalencias por punto (obligatorio)">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {statOptions.map(stat => {
+            const item = eq[stat];
+            return (
+              <Card key={stat} className="p-3">
+                <div className="font-medium">{stat}</div>
+                <div className="mt-2 grid grid-cols-3 gap-2 items-center">
+                  <Label>Unidad</Label>
+                  <Input className="col-span-2" value={item.unidad} onChange={(e)=>setEqField(stat, { unidad: e.target.value })} placeholder={stat==="Inteligencia" ? "chakra" : stat==="Fuerza" ? "kg" : "unidad"} />
+                  <Label>Valor/Punto</Label>
+                  <Input inputMode="numeric" type="number" min={0} step="any" className="col-span-2" value={item.valorPorPunto} onChange={(e)=>setEqField(stat, { valorPorPunto: parseFloat(e.target.value || "0") })} />
+                </div>
+                {stat==="Mente" && (
+                  <div className="text-[11px] opacity-70 mt-2">
+                    Nota: Mente es derivada (equilibrio INT↔SAB). Puedes registrar unidad/escala si quieres convertirla.
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      </Section>
+      <div className="flex justify-end gap-2">
+        <Button type="submit" className="gap-2"><Save className="w-4 h-4" />Guardar especie</Button>
+      </div>
+    </form>
+  );
+}
+
+function SpeciesRow({ s, onEdit, onDelete }: { s: Species; onEdit: () => void; onDelete: () => void }) {
+  return (
+    <div className="grid grid-cols-12 items-center gap-2 py-2 border-b">
+      <div className="col-span-12 sm:col-span-5">
+        <div className="font-medium truncate">{s.nombre}</div>
+        <div className="text-xs opacity-70 line-clamp-1">{s.descripcion}</div>
+      </div>
+      <div className="col-span-12 sm:col-span-5 text-xs">
+        <div className="flex flex-wrap gap-1">
+          {Object.entries(s.equivalencias).slice(0,4).map(([k,v]) => (
+            <Badge key={k} className="rounded-2xl">{k}: 1pt = {v.valorPorPunto} {v.unidad}</Badge>
+          ))}
+          {Object.keys(s.equivalencias).length > 4 && <Badge className="rounded-2xl">+{Object.keys(s.equivalencias).length - 4}</Badge>}
+        </div>
+      </div>
+      <div className="col-span-12 sm:col-span-2 flex justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={onEdit}><Settings2 className="w-4 h-4"/></Button>
+        <Button variant="destructive" size="sm" onClick={onDelete}><Trash2 className="w-4 h-4"/></Button>
       </div>
     </div>
   );
