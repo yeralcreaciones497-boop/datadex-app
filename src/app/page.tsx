@@ -93,13 +93,6 @@ function classifyStat(value: number): { base: typeof BASE_RANKS[number]; sub: st
   return hit ? { base: hit.base, sub: hit.sub } : { base: "Deidad", sub: "Deidad Élite" };
 }
 
-function computeMindFromWisdomAndInt(intel: number, sab: number): number {
-  const i = Math.max(0, intel || 0);
-  const s = Math.max(0, sab || 0);
-  return Math.round(Math.sqrt(i * s));
-}
-
-
 const DEFAULT_STATS = [
   "Fuerza","Resistencia","Destreza","Mente","Vitalidad","Inteligencia","Sabiduría"
 ] as const;
@@ -464,14 +457,7 @@ function BonusRow({ b, onEdit, onDelete }: { b: Bonus; onEdit: () => void; onDel
   );
 }
 
-function StatEditor({
-  stats, onChange, extraStats, onAddStat
-}: {
-  stats: Character["stats"];
-  onChange: (k: StatKey, patch: Partial<{ valor: number; rango: string }>) => void;
-  extraStats: string[];
-  onAddStat?: (name: string) => void;
-}) {
+function StatEditor({ stats, onChange, extraStats, onAddStat }: { stats: Character["stats"]; onChange: (k: StatKey, patch: Partial<{ valor: number; rango: string }>) => void; extraStats: string[]; onAddStat: (name: string) => void; }) {
   const [newStat, setNewStat] = useState("");
   const statKeys = useMemo(() => {
     const base = [...DEFAULT_STATS];
@@ -485,25 +471,6 @@ function StatEditor({
         {statKeys.map((k) => {
           const entry = stats[k] ?? { valor: 0, rango: "Humano Bajo" };
           const cls = classifyStat(entry.valor);
-
-          // ---- Mente derivada (equilibrio entre INT y SAB) ----
-          const isMind = k.toLowerCase() === "mente";
-          /// Busca la clave "Inteligencia" sin importar mayúsculas
-            const intelKey =
-              Object.keys(stats).find((s) => s.toLowerCase() === "inteligencia") ?? "Inteligencia";
-
-            // Busca la clave "Sabiduría/Sabiduria" sin importar tilde o mayúsculas
-            const sabKey =
-              Object.keys(stats).find((s) => {
-                  const ls = s.toLowerCase();
-            return ls === "sabiduría" || ls === "sabiduria" || ls.startsWith("sabid");
-            }) ?? "Sabiduría";
-
-            const intelVal = stats[intelKey]?.valor ?? 0;
-            const sabVal   = stats[sabKey]?.valor ?? 0;
-
-            const autoMind = computeMindFromWisdomAndInt(intelVal, sabVal);
-
           return (
             <Card key={k} className="p-3">
               <div className="flex items-center justify-between gap-2">
@@ -513,59 +480,31 @@ function StatEditor({
                   <Badge className="rounded-2xl" title="Rango real">{cls.sub}</Badge>
                 </div>
               </div>
-
               <div className="mt-3 grid grid-cols-3 gap-2 items-center">
                 <Label>Valor</Label>
-                <Input
-                  inputMode="numeric"
-                  type="number"
-                  className="col-span-2"
-                  value={isMind ? autoMind : entry.valor}
-                  disabled={isMind}
-                  onChange={(e) => {
-                    if (isMind) return; // Mente no se edita a mano
-                    const v = parseFloat(e.target.value || "0");
-                    const derived = classifyStat(v);
-                    onChange(k, { valor: v, rango: derived.sub });
-                  }}
-                />
-                {isMind && (
-                  <div className="col-span-3 text-[11px] opacity-70">
-                    Mente se calcula automáticamente con Inteligencia y Sabiduría.
-                  </div>
-                )}
+                <Input inputMode="numeric" type="number" className="col-span-2" value={entry.valor} onChange={(e) => {
+                  const v = parseFloat(e.target.value || "0");
+                  const derived = classifyStat(v);
+                  onChange(k, { valor: v, rango: derived.sub });
+                }} />
+                <div className="col-span-3 text-[11px] opacity-70">La clasificación se actualiza automáticamente según el valor.</div>
               </div>
             </Card>
           );
         })}
       </div>
-
       <div className="flex gap-2 items-end flex-wrap">
         <div className="flex-1 min-w-[220px]">
           <Label>Nueva estadística</Label>
-          <Input
-            value={newStat}
-            onChange={(e) => setNewStat(e.target.value)}
-            placeholder="Ej: Chakra, Haki, Magia"
-          />
+          <Input value={newStat} onChange={(e) => setNewStat(e.target.value)} placeholder="Ej: Chakra, Haki, Magia"/>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => {
-            if (!newStat.trim()) return;
-            onAddStat?.(newStat.trim());
-            setNewStat("");
-          }}
-          className="gap-2"
-        >
-          <Plus className="w-4 h-4" />Añadir stat
+        <Button type="button" variant="outline" onClick={() => { if (!newStat.trim()) return; onAddStat(newStat.trim()); setNewStat(""); }} className="gap-2">
+          <Plus className="w-4 h-4"/>Añadir stat
         </Button>
       </div>
     </div>
   );
 }
-
 
 function CharacterForm({ initial, onSubmit, skills, bonuses, extraStats }: { initial?: Character; onSubmit: (c: Character) => void; skills: Skill[]; bonuses: Bonus[]; extraStats: string[]; }) {
   const [nombre, setNombre] = useState(initial?.nombre ?? "");
@@ -607,17 +546,9 @@ function CharacterForm({ initial, onSubmit, skills, bonuses, extraStats }: { ini
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-   const intelVal = stats["Inteligencia"]?.valor ?? 0;
-    const sabVal   = stats["Sabiduría"]?.valor ?? stats["Sabiduria"]?.valor ?? 0;
-      const mindVal  = computeMindFromWisdomAndInt(intelVal, sabVal);
-        const finalStats = {
-       ...stats,
-        Mente: { valor: mindVal, rango: classifyStat(mindVal).sub },
-      };
-
-      const base: Character = {
+    const base: Character = {
       id: initial?.id ?? (globalThis.crypto?.randomUUID?.() ?? uid("char")),
-      nombre, especie, descripcion, nivel, stats: finalStats, habilidades, bonos,
+      nombre, especie, descripcion, nivel, stats, habilidades, bonos,
     };
     onSubmit(base);
   }
