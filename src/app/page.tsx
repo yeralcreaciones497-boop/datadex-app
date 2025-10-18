@@ -178,9 +178,10 @@ type Store = {
   evoLinks: EvoLink[];
   bonuses: Bonus[];
   extraStats: string[];
+  species: Species[];
 };
 
-const EMPTY_STORE: Store = { skills: [], characters: [], evoLinks: [], bonuses: [], extraStats: [] };
+const EMPTY_STORE: Store = { skills: [], characters: [], evoLinks: [], bonuses: [], extraStats: [], species: [] };
 
 /**********************
  * Cálculos           *
