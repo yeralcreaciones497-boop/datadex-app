@@ -44,7 +44,7 @@ type BonusMode = "Porcentaje" | "Puntos";
 type BonusTarget = {
   stat: StatKey;
   modo: BonusMode;
-  cantidadPorNivel: number; // ✅ corregido, camelCase correcto
+  cantidadPorNivel: number; 
 };
 
 // Bonificaciones (pueden ser legacy o multi)
@@ -52,15 +52,12 @@ type Bonus = {
   id: string;
   nombre: string;
   descripcion?: string;
-
-  // ✅ Nuevo: Multi-objetivo (máx 5 stats)
+  
   objetivos?: BonusTarget[];
-
-  // ✅ Legacy (1 solo objetivo)
   objetivo?: StatKey;
   modo?: BonusMode;
-  cantidadPorNivel?: number;
 
+  cantidadPorNivel?: number;
   nivelMax: number;
 };
 
@@ -154,25 +151,44 @@ function computeMind(intel: number, sab: number): number {
 }
 
 /** Suma bonificaciones (multi-objetivo o legacy) sobre un stat */
-function sumBonusesForStat(c: Character, key: StatKey, bonuses: Bonus[]) {
-  let flat = 0; let perc = 0;
-  for (const assign of (c.bonos ?? [])) {
-    const b = bonuses.find(x => x.id === assign.bonusId);
+function sumBonusesForStat(
+  stat: StatKey,
+  assignmentsByBonusId: Record<string, number>, // { bonusId: nivelAsignado }
+  bonuses: Bonus[]
+): { flat: number; percent: number } {
+  const byId = indexBonuses(bonuses);
+  let flat = 0;
+  let percent = 0;
+
+  for (const bonusId in assignmentsByBonusId) {
+    const asignado = assignmentsByBonusId[bonusId] ?? 0;
+    if (asignado <= 0) continue;
+
+    const b = byId[bonusId];
     if (!b) continue;
-    const lvl = Math.max(0, Math.min(assign.nivel ?? 0, b.nivelMax));
-    if (b.objetivos?.length) {
+
+    const lvl = Math.max(0, Math.min(asignado, b.nivelMax ?? asignado));
+
+    // MULTI: objetivos[]
+    if (Array.isArray(b.objetivos) && b.objetivos.length) {
       for (const t of b.objetivos) {
-        if (t.stat !== key) continue;
-        if (t.modo === "Puntos") flat += (t.cantidadPorNivel ?? 0) * lvl;
-        else perc += ((t.cantidadPorNivel ?? 0) / 100) * lvl;
+        if (t.stat !== stat) continue;
+        const n = (t.cantidadPorNivel ?? 0) * lvl;
+        if (t.modo === "Puntos") flat += n;
+        else if (t.modo === "Porcentaje") percent += n; // en puntos de %
       }
-    } else {
-      if (b.objetivo !== key) continue;
-      if (b.modo === "Puntos") flat += (b.cantidadPorNivel ?? 0) * lvl;
-      else perc += ((b.cantidadPorNivel ?? 0) / 100) * lvl;
+      continue;
+    }
+
+    // LEGACY: un solo objetivo
+    if (b.objetivo === stat && (b.cantidadPorNivel ?? 0) > 0) {
+      const n = (b.cantidadPorNivel ?? 0) * lvl;
+      if (b.modo === "Puntos") flat += n;
+      else if (b.modo === "Porcentaje") percent += n;
     }
   }
-  return { flat, perc };
+
+  return { flat, percent: percent / 100 }; // devolver porcentaje como fracción
 }
 
 /** Aplica modificadores de especie (puntos*nivel + % fijo) */
@@ -192,8 +208,18 @@ function calcEffectiveStat(c: Character, key: StatKey, bonuses: Bonus[], species
   const base = c.stats[key]?.valor ?? 0;
   const sp = species.find(s => s.nombre === c.especie);
   const withSpecies = applySpeciesMods(base, key, sp, c.nivel);
-  const { flat, perc } = sumBonusesForStat(c, key, bonuses);
-  return Math.round((withSpecies * (1 + perc) + flat) * 100) / 100;
+  // Crear mapa bonusId → nivelAsignado
+const assignmentsByBonusId = Object.fromEntries(
+  (c.bonos ?? []).map(b => [b.bonusId, b.nivel])
+);
+
+// Sumar bonificaciones
+const { flat, percent } = sumBonusesForStat(
+  key,                  // <- Stat que estamos calculando
+  assignmentsByBonusId, // <- Niveles de bonuses asignados
+  bonuses               // <- Todas las bonificaciones guardadas
+);
+  return Math.round((withSpecies * (1 + percent) + flat) * 100) / 100;
 }
 
 /* ================= Small UI Helpers ================= */
@@ -207,6 +233,12 @@ function Section({ title, children, actions }: { title: string; children: React.
       <CardContent className="p-3 md:p-4">{children}</CardContent>
     </Card>
   );
+}
+
+function indexBonuses(bonuses: Bonus[]) {
+  const byId: Record<string, Bonus> = {};
+  for (const b of bonuses) byId[b.id] = b;
+  return byId;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
