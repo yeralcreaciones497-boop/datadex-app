@@ -824,7 +824,11 @@ export default function MiniApp() {
     setStore(prev => ({ ...prev, bonuses: prev.bonuses.filter(b => b.id !== id), characters: prev.characters.map(ch => ({ ...ch, bonos: ch.bonos?.filter(bb => bb.bonusId !== id) ?? [] })), }));
   }
 
-  async function addExtraStat(
+  async function addExtraStat(name: string) {
+    const { error } = await supabase.from("extra_stats").upsert({ name });
+    if (error) { alert("Error añadiendo stat: " + error.message); return; }
+    setStore(prev => prev.extraStats.includes(name) ? prev : { ...prev, extraStats: [...prev.extraStats, name] });
+  }
 
   async function upsertSpecies(s: Species) {
     const id = s.id || (globalThis.crypto?.randomUUID?.() ?? uid("spec"));
@@ -839,12 +843,6 @@ export default function MiniApp() {
     const { error } = await supabase.from("species").delete().eq("id", id);
     if (error) { alert("Error eliminando especie: " + error.message); return; }
     setStore(prev => ({ ...prev, species: prev.species.filter(s => s.id !== id) }));
-  }
-
-name: string) {
-    const { error } = await supabase.from("extra_stats").upsert({ name });
-    if (error) { alert("Error añadiendo stat: " + error.message); return; }
-    setStore(prev => prev.extraStats.includes(name) ? prev : { ...prev, extraStats: [...prev.extraStats, name] });
   }
 
   const filteredSkills = useMemo(() => {
