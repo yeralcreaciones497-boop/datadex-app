@@ -1446,6 +1446,7 @@ async function deleteSpecies(idToDelete: string) {
         <Button variant="outline" onClick={() => setEditingBonusId(null)}>Cancelar</Button>
       )}
     >
+      {null}
   </Section>
 {/* moved: premature </TabsContent> for bonuses */}
 
