@@ -488,8 +488,13 @@ function StatEditor({
 
           // ---- Mente derivada (equilibrio entre INT y SAB) ----
           const isMind = k.toLowerCase() === "mente";
-          const intelVal = stats["Inteligencia"]?.valor ?? 0;
-          const sabVal = stats["Sabiduría"]?.valor ?? stats["Sabiduria"]?.valor ?? 0;
+          // Obtiene Inteligencia y Sabiduría aunque tengan minúsculas o mayúsculas diferentes
+          const intelKey = Object.keys(stats).find(s => s.toLowerCase() === "inteligencia") ?? "Inteligencia";
+          const sabKey   = Object.keys(stats).find(s => s.toLowerCase().startsWith("sabid")) ?? "Sabiduría";
+
+          const intelVal = stats[intelKey]?.valor ?? 0;
+          const sabVal   = stats[sabKey]?.valor ?? 0;
+
           const autoMind = computeMindFromWisdomAndInt(intelVal, sabVal);
 
           return (
