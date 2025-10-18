@@ -749,6 +749,7 @@ export default function MiniApp() {
   const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
   const [editingSpeciesId, setEditingSpeciesId] = useState<string | null>(null);
 
+
   const loadData = useCallback(async () => {
     const { data: skills } = await supabase.from("skills").select("*");
     const { data: characters } = await supabase.from("characters").select("*");
