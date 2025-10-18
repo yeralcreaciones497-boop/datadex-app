@@ -40,20 +40,30 @@ type Species = {
 };
 
 type BonusMode = "Porcentaje" | "Puntos";
-type BonusTarget = { stat: StatKey; modo: BonusMode; cantidadPorNivel: number };
+// filtrar stats dentro de bonus multi
+type BonusTarget = {
+  stat: StatKey;
+  modo: BonusMode;
+  cantidadPorNivel: number; // ✅ corregido, camelCase correcto
+};
 
+// Bonificaciones (pueden ser legacy o multi)
 type Bonus = {
   id: string;
   nombre: string;
-  descripcion: string;
-  // Multi-objetivo moderno (opcional)
+  descripcion?: string;
+
+  // ✅ Nuevo: Multi-objetivo (máx 5 stats)
   objetivos?: BonusTarget[];
-  // Compatibilidad legacy (un solo objetivo)
+
+  // ✅ Legacy (1 solo objetivo)
   objetivo?: StatKey;
   modo?: BonusMode;
   cantidadPorNivel?: number;
+
   nivelMax: number;
 };
+
 
 type Skill = {
   id: string;
@@ -207,6 +217,120 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     </div>
   );
 }
+
+function MultiTargetsEditor({
+  namePrefix,
+  initialTargets,
+  statsOptions,
+}: {
+  namePrefix: string;
+  initialTargets: { stat: string; modo: BonusMode; cantidadPorNivel: number }[];
+  statsOptions: string[];
+}) {
+  const [rows, setRows] = React.useState(
+    Array.isArray(initialTargets) ? initialTargets.slice(0, 5) : []
+  );
+
+  function addRow() {
+    if (rows.length >= 5) return;
+    setRows((prev) => [
+      ...prev,
+      { stat: statsOptions[0] ?? "Fuerza", modo: "Puntos" as BonusMode, cantidadPorNivel: 1 },
+    ]);
+  }
+  function updateRow(i: number, patch: Partial<{ stat: string; modo: BonusMode; cantidadPorNivel: number }>) {
+    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
+  function removeRow(i: number) {
+    setRows((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  // Preview por nivel (suma local): puntos = n * lvl; % = (n/100) * lvl
+  const [lvl, setLvl] = React.useState(1);
+  React.useEffect(() => {
+    const input = document.querySelector('input[name="nivelPreview_multi"]') as HTMLInputElement | null;
+    if (!input) return;
+    const onChange = () => setLvl(Math.max(1, parseInt(input.value || "1")));
+    input.addEventListener("input", onChange);
+    return () => input.removeEventListener("input", onChange);
+  }, []);
+
+  return (
+    <div className="space-y-2">
+      <input type="hidden" name="count_rows" value={rows.length} />
+      {rows.map((r, i) => (
+        <div key={i} className="grid grid-cols-12 gap-2 items-end">
+          <div className="col-span-5">
+            <Label>Stat</Label>
+            <Select
+              defaultValue={String(r.stat)}
+              onValueChange={(v) => {
+                updateRow(i, { stat: v });
+                const el = document.querySelector(`select[name='${namePrefix}stat_${i}']`) as HTMLSelectElement | null;
+                if (el) el.value = v;
+              }}
+            >
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent className="max-h-60 overflow-auto">
+                {statsOptions.map((s) => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <select name={`${namePrefix}stat_${i}`} defaultValue={String(r.stat)} className="hidden" />
+          </div>
+
+          <div className="col-span-3">
+            <Label>Modo</Label>
+            <Select
+              defaultValue={r.modo}
+              onValueChange={(v) => {
+                updateRow(i, { modo: v as BonusMode });
+                const el = document.querySelector(`select[name='${namePrefix}modo_${i}']`) as HTMLSelectElement | null;
+                if (el) el.value = v;
+              }}
+            >
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Puntos">Puntos</SelectItem>
+                <SelectItem value="Porcentaje">Porcentaje</SelectItem>
+              </SelectContent>
+            </Select>
+            <select name={`${namePrefix}modo_${i}`} defaultValue={r.modo} className="hidden" />
+          </div>
+
+          <div className="col-span-3">
+            <Label>+ por nivel</Label>
+            <Input
+              type="number"
+              min={0}
+              name={`${namePrefix}cantidad_${i}`}
+              defaultValue={r.cantidadPorNivel}
+              onChange={(e) => updateRow(i, { cantidadPorNivel: Math.max(0, parseFloat(e.target.value || "0")) })}
+            />
+            {/* Preview local para esta fila */}
+            <div className="text-[11px] opacity-70 mt-1">
+              Preview nivel {lvl}:{" "}
+              {r.modo === "Puntos"
+                ? `+${(r.cantidadPorNivel ?? 0) * lvl} puntos`
+                : `+${((r.cantidadPorNivel ?? 0) / 100) * lvl * 100}%`}
+            </div>
+          </div>
+
+          <div className="col-span-1">
+            <Button type="button" variant="destructive" onClick={() => removeRow(i)} className="w-full">
+              Quitar
+            </Button>
+          </div>
+        </div>
+      ))}
+      <Button type="button" variant="outline" onClick={addRow} disabled={rows.length >= 5}>
+        Añadir objetivo (máx 5)
+      </Button>
+    </div>
+  );
+}
+
 
 function Pill({ children }: { children: React.ReactNode }) {
   return <Badge className="rounded-2xl px-2 py-1 text-[11px] md:text-xs whitespace-nowrap">{children}</Badge>;
@@ -825,6 +949,69 @@ async function deleteSpecies(idToDelete: string) {
         {/* BONIFICACIONES */}
         <TabsContent value="bonuses" className="mt-4 space-y-3">
           <Section title={editingBonus ? "Editar bonificación" : "Nueva bonificación"} actions={editingBonus && <Button variant="outline" onClick={()=>setEditingBonusId(null)}>Cancelar</Button>}>
+            {/* NUEVO: Formulario Multi-objetivo (hasta 5 consecuencias) */}
+<form
+  onSubmit={(e) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget as HTMLFormElement);
+    const nombre = String(fd.get("nombre_multi") ?? "");
+    const descripcion = String(fd.get("descripcion_multi") ?? "");
+    const nivelMax = Math.max(1, parseInt(String(fd.get("nivelMax_multi") ?? "5")));
+    const nivelPreview = Math.max(1, parseInt(String(fd.get("nivelPreview_multi") ?? "1")));
+
+    const total = parseInt(String(fd.get("count_rows") ?? "0"));
+    const objetivos = Array.from({ length: total })
+      .map((_, i) => ({
+        stat: String(fd.get(`stat_${i}`) ?? "Fuerza"),
+        modo: String(fd.get(`modo_${i}`) ?? "Puntos") as BonusMode,
+        cantidadPorNivel: Math.max(0, parseFloat(String(fd.get(`cantidad_${i}`) ?? "0"))),
+      }))
+      .filter((t) => t.cantidadPorNivel > 0)
+      .slice(0, 5);
+
+    if (!nombre.trim()) return alert("Ponle un nombre a la bonificación.");
+    if (objetivos.length === 0) return alert("Añade al menos 1 objetivo.");
+    if (new Set(objetivos.map((o) => o.stat)).size !== objetivos.length) {
+      return alert("No repitas la misma estadística dentro de la misma bonificación.");
+    }
+
+    const out: Bonus = {
+      id: editingBonus?.id ?? uid("bonus"),
+      nombre,
+      descripcion,
+      nivelMax,
+      objetivos, // multi objetivo
+    };
+
+    setEditingBonusId(null);
+    upsertBonus(out);
+  }}
+  className="space-y-3"
+>
+  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+    <Field label="Nombre"><Input name="nombre_multi" defaultValue={editingBonus?.objetivos?.length ? editingBonus?.nombre ?? "" : ""} /></Field>
+    <Field label="Nivel Máx"><Input name="nivelMax_multi" type="number" min={1} defaultValue={editingBonus?.objetivos?.length ? (editingBonus?.nivelMax ?? 5) : 5} /></Field>
+    <Field label="Descripción"><Input name="descripcion_multi" defaultValue={editingBonus?.objetivos?.length ? editingBonus?.descripcion ?? "" : ""} /></Field>
+  </div>
+
+        {/* Editor dinámico (máx 5 filas) */}
+          <MultiTargetsEditor
+                 namePrefix=""
+                 initialTargets={(editingBonus?.objetivos ?? []) as any}
+                statsOptions={Array.from(new Set([...DEFAULT_STATS as any]))}
+              />
+
+                {/* Preview simple por nivel (cliente) */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                <Field label="Nivel para preview">
+             <Input name="nivelPreview_multi" type="number" min={1} defaultValue={1} />
+        </Field>
+          <div className="md:col-span-3 text-xs opacity-75">
+           Consejo: el preview muestra cuánto sumaría cada objetivo a ese nivel (no se guarda).
+          </div>
+          </div>
+          </form>
+
             {/* Formulario sencillo (legacy, un objetivo) */}
             <form onSubmit={(e)=>{
               e.preventDefault();
