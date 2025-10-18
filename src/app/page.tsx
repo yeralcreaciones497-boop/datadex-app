@@ -79,13 +79,18 @@ type EvoLink = { from: string; to: string };
 type Character = {
   id: string;
   nombre: string;
-  especie: string;
+  especies: string[]; 
+  especie?: string;
   descripcion: string;
   nivel: number;
+
   stats: Record<StatKey, { valor: number; rango: string }>;
   habilidades: { skillId: string; nivel: number }[];
   bonos: { bonusId: string; nivel: number }[];
+  avatarUrl?: string; 
 };
+
+
 
 type Store = {
   skills: Skill[];
@@ -192,33 +197,58 @@ function sumBonusesForStat(
 }
 
 /** Aplica modificadores de especie (puntos*nivel + % fijo) */
-function applySpeciesMods(base: number, key: StatKey, sp: Species | undefined, nivel: number) {
-  if (!sp?.baseMods?.length) return base;
-  let flat = 0; let perc = 0;
-  for (const m of sp.baseMods) {
-    if (m.stat !== key) continue;
-    if (m.modo === "Puntos") flat += m.cantidad * Math.max(1, nivel ?? 1);
-    else perc += m.cantidad / 100;
+/** Aplica modificadores de TODAS las especies seleccionadas (flat acumulado + % acumulado). */
+function applySpeciesModsMulti(
+  base: number,
+  key: StatKey,
+  species: Species[],                // catálogo completo
+  speciesIds: string[] | undefined,  // ids seleccionadas en el personaje
+  nivel: number
+) {
+  if (!speciesIds?.length) return base;
+
+  const byId = new Map(species.map(s => [s.id, s]));
+  let flat = 0;
+  let perc = 0; // fracción (0.15 = +15%)
+
+  for (const id of speciesIds) {
+    const sp = byId.get(id);
+    if (!sp?.baseMods?.length) continue;
+
+    for (const m of sp.baseMods) {
+      if (m.stat !== key) continue;
+      const perLevel = Math.max(1, nivel ?? 1);
+      if (m.modo === "Puntos") {
+        flat += (m.cantidad ?? 0) * perLevel;
+      } else if (m.modo === "Porcentaje") {
+        perc += (m.cantidad ?? 0) / 100;
+      }
+    }
   }
+
   return base * (1 + perc) + flat;
 }
 
-/** Valor efectivo = base + especie + bonos */
+/** Valor efectivo = base → especies (multi) → bonos (multi-objetivo o legacy). */
 function calcEffectiveStat(c: Character, key: StatKey, bonuses: Bonus[], species: Species[]) {
   const base = c.stats[key]?.valor ?? 0;
-  const sp = species.find(s => s.nombre === c.especie);
-  const withSpecies = applySpeciesMods(base, key, sp, c.nivel);
-  // Crear mapa bonusId → nivelAsignado
-const assignmentsByBonusId = Object.fromEntries(
-  (c.bonos ?? []).map(b => [b.bonusId, b.nivel])
-);
 
-// Sumar bonificaciones
-const { flat, percent } = sumBonusesForStat(
-  key,                  // <- Stat que estamos calculando
-  assignmentsByBonusId, // <- Niveles de bonuses asignados
-  bonuses               // <- Todas las bonificaciones guardadas
-);
+  // usar múltiples especies por ID (fallback a especie principal si no hay arreglo)
+  const speciesIds = (c.especies?.length ? c.especies : (c.especie ? [c.especie] : []));
+  const withSpecies = applySpeciesModsMulti(base, key, species, speciesIds, c.nivel);
+
+  // Crear mapa bonusId → nivelAsignado
+  const assignmentsByBonusId = Object.fromEntries(
+    (c.bonos ?? []).map(b => [b.bonusId, b.nivel])
+  );
+
+  // Sumar bonificaciones (percent como fracción)
+  const { flat, percent } = sumBonusesForStat(
+    key,
+    assignmentsByBonusId,
+    bonuses
+  );
+
   return Math.round((withSpecies * (1 + percent) + flat) * 100) / 100;
 }
 
@@ -234,6 +264,143 @@ function Section({ title, children, actions }: { title: string; children: React.
     </Card>
   );
 }
+
+// ---- Species utils ----
+export function sortEspeciesAuto(especies: string[]) {
+  if (!Array.isArray(especies) || especies.length === 0) return [];
+  const [principal, ...resto] = especies;
+  return [principal, ...resto.slice().sort((a, b) => a.localeCompare(b))];
+}
+
+export function uniqEspecies(arr: string[]) {
+  return Array.from(new Set(arr));
+}
+
+export function formatEspeciesSlash(especies: string[]) {
+  return (especies ?? []).join(" / ");
+}
+
+type SpeciesOption = { id: string; nombre: string };
+
+function SpeciesMultiSelectAccordion({
+  allSpecies,
+  value,
+  onChange,
+  max = 10,
+  title = "Especies (máx 10)",
+}: {
+  allSpecies: SpeciesOption[];
+  value: string[];                 // ids seleccionados
+  onChange: (ids: string[]) => void;
+  max?: number;
+  title?: string;
+}) {
+  const [query, setQuery] = React.useState("");
+
+  const selected = React.useMemo(() => uniqEspecies(value).slice(0, max), [value, max]);
+  const selectedSet = React.useMemo(() => new Set(selected), [selected]);
+
+  const filtered = React.useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const base = allSpecies ?? [];
+    return q
+      ? base.filter(s =>
+          s.nombre.toLowerCase().includes(q) ||
+          s.id.toLowerCase().includes(q)
+        )
+      : base;
+  }, [allSpecies, query]);
+
+  function toggle(id: string) {
+    // si ya está, quita; si no está, agrega (si hay cupo)
+    if (selectedSet.has(id)) {
+      const out = selected.filter(x => x !== id);
+      onChange(sortEspeciesAuto(out));
+    } else {
+      if (selected.length >= max) return; // tope
+      const out = sortEspeciesAuto([...selected, id]);
+      onChange(out);
+    }
+  }
+
+  function clearAll() {
+    onChange([]);
+  }
+
+  const countLabel = `${selected.length}/${max} seleccionadas`;
+  const principal = selected[0]; // especie principal = primera
+
+  return (
+    <div className="rounded-2xl border p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="font-medium">{title}</div>
+        <div className="text-xs opacity-70">{countLabel}</div>
+      </div>
+
+      <div className="flex gap-2 items-center">
+        <Input
+          placeholder="Buscar especie..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <button type="button" className="text-sm underline opacity-80" onClick={clearAll}>
+          Limpiar
+        </button>
+      </div>
+
+      <div className="border rounded-xl">
+        {/* Acordeón simple */}
+        <details open>
+          <summary className="cursor-pointer select-none px-4 py-2">Seleccionar especies</summary>
+          <div className="max-h-64 overflow-auto px-4 pb-3 pt-1 space-y-2">
+            {filtered.length === 0 ? (
+              <div className="text-sm opacity-70">Sin resultados.</div>
+            ) : (
+              filtered.map(sp => {
+                const checked = selectedSet.has(sp.id);
+                const disabled = !checked && selected.length >= max;
+                return (
+                  <label
+                    key={sp.id}
+                    className={`flex items-center gap-2 text-sm ${
+                      disabled ? "opacity-40" : ""
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={disabled}
+                      onChange={() => toggle(sp.id)}
+                    />
+                    <span>
+                      {sp.nombre}
+                      {principal === sp.id ? (
+                        <span className="ml-2 text-[11px] px-2 py-[2px] rounded-full bg-amber-100">
+                          Principal
+                        </span>
+                      ) : null}
+                    </span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+        </details>
+      </div>
+
+      {selected.length > 0 && (
+        <div className="text-sm">
+          <div className="opacity-70">Especies del personaje:</div>
+          <div className="font-medium">{formatEspeciesSlash(selected)}</div>
+          <div className="text-[11px] opacity-70 mt-1">
+            Orden automático: Principal (primera) + alfabético.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 function indexBonuses(bonuses: Bonus[]) {
   const byId: Record<string, Bonus> = {};
@@ -639,6 +806,19 @@ function CharacterForm({
   const [nivel, setNivel] = useState<number>(initial?.nivel ?? 1);
   const [stats, setStats] = useState<Character["stats"]>(initial?.stats ?? {});
   const [bonos, setBonos] = useState<Character["bonos"]>(initial?.bonos ?? []);
+	// ✅ EDITADO AQUÍ: estado multi-especie por ID
+	const [especiesSel, setEspeciesSel] = useState<string[]>(
+		sortEspeciesAuto(
+			(initial?.especies && Array.isArray(initial.especies) && initial.especies.length
+				? initial.especies
+				: initial?.especie
+				? [initial.especie]
+				: []
+			).slice(0, 10)
+		)
+	);
+	const speciesOptions = useMemo(() => (species ?? []).map(sp => ({ id: sp.id, nombre: sp.nombre || sp.id })), [species]);
+
 
   function upStat(k: StatKey, patch: Partial<{ valor: number; rango: string }>) {
     setStats((prev) => ({ ...prev, [k]: { valor: patch.valor ?? prev[k]?.valor ?? 0, rango: (patch.rango ?? prev[k]?.rango ?? "Humano Bajo") as string } }));
@@ -658,55 +838,59 @@ function CharacterForm({
   const selectedSpecies = useMemo(() => species.find(s => s.nombre === (customSpec.trim() || especie)), [species, especie, customSpec]);
 
   function handleSubmit(e: React.FormEvent) {
-  e.preventDefault();
-  const finalSpeciesName = (customSpec.trim() || especie);
-  const sp = species.find(s => s.nombre === finalSpeciesName);
+	e.preventDefault();
 
-  const intelKey = Object.keys(stats).find(s => s.toLowerCase() === "inteligencia") ?? "Inteligencia";
-  const sabKey   = Object.keys(stats).find(s => ["sabiduría","sabiduria"].includes(s.toLowerCase()) || s.toLowerCase().startsWith("sabid")) ?? "Sabiduría";
+	// ✅ EDITADO AQUÍ: guardar multi-especie por ID, principal + Mente auto
+	const uniq = uniqEspecies(especiesSel).slice(0, 10);
+	const byId = new Map(species.map(s => [s.id, s]));
+	const principal = uniq[0] ?? undefined;
+	const restoOrdenado = uniq.slice(1).sort((a, b) => (
+		(byId.get(a)?.nombre ?? a).localeCompare(byId.get(b)?.nombre ?? b)
+	));
+	const ordered = principal ? [principal, ...restoOrdenado] : restoOrdenado;
 
-  const intelVal = stats[intelKey]?.valor ?? 0;
-  const sabVal   = stats[sabKey]?.valor ?? 0;
-  const mindVal  = sp?.allowMind ? computeMind(intelVal, sabVal) : 0;
+	const intelKey = "Inteligencia";
+	const sabKey = "Sabiduría";
+	const intelVal = Number(stats[intelKey]?.valor ?? 0);
+	const sabVal = Number(stats[sabKey]?.valor ?? 0);
+	const allAllowMind = ordered.length === 0 ? true : ordered.every(id => !!byId.get(id)?.allowMind);
+	const mindVal = allAllowMind ? computeMind(intelVal, sabVal) : 0;
+	const finalStats: Character["stats"] = {
+		...stats,
+		Mente: { valor: mindVal, rango: classifyStat(mindVal).sub }
+	};
 
-  // ✅ Guardamos estadísticas base + Mente auto (sin sumar especie aquí)
-  const finalStats: Character["stats"] = {
-    ...stats,
-    Mente: { valor: mindVal, rango: classifyStat(mindVal).sub }
-  };
+	const payload: Character = {
+		id: initial?.id ?? uid("char"),
+		nombre,
+		descripcion,
+		nivel,
+		stats: finalStats,
+		habilidades: initial?.habilidades ?? [],
+		bonos,
+		especies: ordered,
+		especie: principal,
+		avatarUrl: initial?.avatarUrl,
+	};
 
-  const out: Character = {
-    id: initial?.id ?? crypto.randomUUID(),
-    nombre,
-    especie: finalSpeciesName,
-    descripcion,
-    nivel,
-    stats: finalStats,
-    habilidades: [],
-    bonos
-  };
-  onSubmit(out);
+	onSubmit(payload);
 }
+
 
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Field label="Nombre"><Input value={nombre} onChange={(e) => setNombre(e.target.value)} /></Field>
-        <Field label="Especie">
-          <div className="flex gap-2 items-center">
-            <Select value={selectedSpecies?.id ?? ""} onValueChange={(val) => {
-              if (val === "__custom__") return; const sp = species.find(s => s.id === val); setEspecie(sp?.nombre ?? "");
-            }}>
-              <SelectTrigger><SelectValue placeholder="Selecciona especie"/></SelectTrigger>
-              <SelectContent className="max-h-64 overflow-auto">
-                {species.map(sp => (<SelectItem key={sp.id} value={sp.id}>{sp.nombre}</SelectItem>))}
-                <SelectItem value="__custom__">Otra (escribir)</SelectItem>
-              </SelectContent>
-            </Select>
-            <Input placeholder="Otra especie (texto)" value={customSpec} onChange={(e)=>setCustomSpec(e.target.value)} />
-          </div>
-        </Field>
+        // ✅ EDITADO AQUÍ: selector multi-especie
+<Field label="Especies (máx 10)">
+	<SpeciesMultiSelectAccordion
+		allSpecies={speciesOptions}
+		value={especiesSel}
+		onChange={(ids)=>setEspeciesSel(uniqEspecies(ids).slice(0,10))}
+		title="Especies (máx 10)"
+	/>
+</Field>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -781,7 +965,10 @@ function Leaderboard({ characters, bonuses, species }: { characters: Character[]
       const eff = calcEffectiveStat(c, stat as StatKey, bonuses, species);
       const value = useEffective ? eff : base;
       const cls = classifyStat(value);
-      return { id: c.id, nombre: c.nombre, especie: c.especie, value, cls: cls.sub };
+      // ✅ EDITADO AQUÍ: especie principal por nombre
+      const principalId = c.especies?.[0] ?? c.especie;
+      const principalName = species.find(s => s.id === principalId)?.nombre ?? "";
+      return { id: c.id, nombre: c.nombre, especie: principalName, value, cls: cls.sub };
     }).sort((a,b) => b.value - a.value);
     return list.slice(0, Math.max(1, topN));
   }, [characters, bonuses, species, stat, topN, useEffective]);
@@ -834,13 +1021,162 @@ function Leaderboard({ characters, bonuses, species }: { characters: Character[]
 }
 
 /* ================= App ================= */
+
+// ✅ EDITADO AQUÍ: Modal de Ficha de Personaje (táctico verde, solo lectura)
+function CharacterSheetModal({
+	open,
+	onClose,
+	character,
+	species,
+	bonuses
+}: {
+	open: boolean;
+	onClose: () => void;
+	character: Character | null;
+	species: Species[];
+	bonuses: Bonus[];
+}) {
+	if (!open || !character) return null;
+
+	const principalId = character.especies?.[0] ?? character.especie;
+	const byId = new Map(species.map(s => [s.id, s]));
+	const principalName = principalId ? (byId.get(principalId)?.nombre ?? "") : "";
+	const allSpeciesNames = (character.especies?.length ? character.especies : (principalId ? [principalId] : []))
+		.map(id => byId.get(id)?.nombre ?? id);
+
+	const statKeys: StatKey[] = Array.from(new Set([
+		...Object.keys(character.stats || {}),
+		...DEFAULT_STATS as any
+	])) as any;
+
+	const effective: Array<{ key: string; value: number }> = statKeys.map(k => ({
+		key: k,
+		value: calcEffectiveStat(character, k as StatKey, bonuses, species)
+	}));
+
+  function onExportPDF(ch: Character) {
+	try {
+		const w = window.open("", "_blank", "width=1024,height=768");
+		if (!w) return;
+
+		// Lista de especies
+		const allNames = [principalName, ...allSpeciesNames.filter(n => n !== principalName)]
+			.filter(Boolean)
+			.join(" / ");
+
+		// Construcción de stats como HTML
+		let statsHtml = "";
+		for (const s of effective) {
+			statsHtml += "<div>" + s.key + ": <strong>" + s.value + "</strong></div>";
+		}
+
+		// CSS del PDF
+		const css = ""
+			+ "body { font-family: ui-sans-serif, system-ui, -apple-system; background: #0a1b0a; color: #c4f0c4; }\n"
+			+ "h1 { margin: 0; font-size: 22px; }\n"
+			+ ".small { opacity: .8; font-size: 12px; }\n"
+			+ ".grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; }\n"
+			+ ".box { border: 1px solid #1f3b1f; border-radius: 10px; padding: 12px; background: #0f2010; }\n"
+			+ ".tag { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #173d17; }";
+
+		// HTML del PDF
+		const html =
+    "<html><head><title>" + ch.nombre + " - Ficha</title>" +
+    "<style>" + css + "</style></head><body>" +
+    "<h1>" + ch.nombre + " <span class='small'>Nivel " + ch.nivel + "</span></h1>" +
+    "<div class='small'>" + allNames + "</div><br/>" +
+    "<div class='box'><strong>Estadísticas</strong><div class='grid'>" +
+    statsHtml +
+    "</div></div>" +
+    "</body></html>";
+
+		w.document.open();
+		w.document.write(html);
+		w.document.close();
+		w.focus();
+		w.print();
+	} catch (e) {
+		console.error(e);
+	}
+}
+
+
+	return (
+		<div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center">
+			<div className="w-full max-w-3xl rounded-2xl border border-emerald-800 bg-[#0b1510] shadow-xl">
+				<div className="p-4 border-b border-emerald-900 flex items-center justify-between">
+					<div>
+						<div className="text-lg font-semibold text-emerald-200">{character.nombre}</div>
+						<div className="text-xs text-emerald-400">Nivel {character.nivel} • {principalName}{allSpeciesNames.length>1 ? " +" : ""} {allSpeciesNames.length>1 ? allSpeciesNames.filter(n=>n!==principalName).join(" / ") : ""}</div>
+					</div>
+					<div className="flex gap-2">
+						<Button variant="outline" onClick={() => onExportPDF(character)}>Exportar PDF</Button>
+						<Button variant="destructive" onClick={onClose}>Cerrar</Button>
+					</div>
+				</div>
+				<div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+					<Card className="bg-[#0d1f14] border-emerald-900">
+						<CardHeader><CardTitle className="text-emerald-200">Estadísticas</CardTitle></CardHeader>
+						<CardContent className="grid grid-cols-2 gap-2">
+							{effective.map(s => (
+								<div key={s.key} className="text-sm flex items-center justify-between border-b border-emerald-900 py-1">
+									<span className="text-emerald-300">{s.key}</span>
+									<span className="font-semibold text-emerald-100">{s.value}</span>
+								</div>
+							))}
+						</CardContent>
+					</Card>
+
+					<Card className="bg-[#0d1f14] border-emerald-900">
+						<CardHeader><CardTitle className="text-emerald-200">Especies</CardTitle></CardHeader>
+						<CardContent>
+							<div className="mb-2 text-xs text-emerald-400">Principal</div>
+							<div className="tag">{principalName || "—"}</div>
+							<div className="mt-3 mb-2 text-xs text-emerald-400">Todas</div>
+							<div className="flex flex-wrap gap-2">
+								{allSpeciesNames.map((n,i)=>(<span key={i} className="tag">{n}</span>))}
+							</div>
+						</CardContent>
+					</Card>
+
+					<Card className="bg-[#0d1f14] border-emerald-900 md:col-span-2">
+						<CardHeader><CardTitle className="text-emerald-200">Bonificaciones Activas</CardTitle></CardHeader>
+						<CardContent>
+							{(character.bonos ?? []).length === 0 ? (
+								<div className="text-sm text-emerald-400">Sin bonificaciones.</div>
+							) : (
+								<div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+									{character.bonos.map(b => {
+										const bb = bonuses.find(x => x.id === b.bonusId);
+										if (!bb) return null;
+										return (
+											<div key={b.bonusId} className="p-2 rounded-lg border border-emerald-900 bg-[#0f2016]">
+												<div className="text-sm font-medium text-emerald-100">{bb.nombre ?? bb.id}</div>
+												<div className="text-xs text-emerald-400">Nivel {b.nivel}</div>
+											</div>
+										);
+									})}
+								</div>
+							)}
+						</CardContent>
+					</Card>
+
+				</div>
+			</div>
+		</div>
+	);
+}
 export default function Page() {
   const [store, setStore] = useState<Store>(EMPTY_STORE);
   const [tab, setTab] = useState("skills");
   const [editingCharId, setEditingCharId] = useState<string | null>(null);
   const [editingBonusId, setEditingBonusId] = useState<string | null>(null);
   const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
-  const [editingSpeciesId, setEditingSpeciesId] = useState<string | null>(null);
+  
+	// ✅ EDITADO AQUÍ: estado para modal de ficha
+	const [sheetOpen, setSheetOpen] = useState(false);
+	const [sheetCharId, setSheetCharId] = useState<string | null>(null);
+const [editingSpeciesId, setEditingSpeciesId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -852,7 +1188,15 @@ export default function Page() {
       setStore({
         skills: (skills ?? []) as any,
         evoLinks: (evoLinks ?? []) as any,
-        characters: (characters ?? []) as any,
+        characters: (characters ?? []).map((c: any) => ({
+        ...c,
+        especies: Array.isArray(c.especies)
+         ? c.especies.slice(0, 10) 
+        : c.especie
+         ? [c.especie] 
+         : [],
+      })) as any,
+
         bonuses: (bonuses ?? []) as any,
         extraStats: [],
         species: (species ?? []).map((s: any) => ({ id: s.id, nombre: s.nombre, descripcion: s.descripcion ?? "", equivalencias: (s.equivalencias ?? {}) as Record<string, Equivalencia>, allowMind: !!s.allow_mind, baseMods: (s.base_mods ?? []) as SpeciesBaseMod[] })),
@@ -1122,6 +1466,8 @@ async function deleteSpecies(idToDelete: string) {
                     <Pill>{c.stats?.Fuerza?.valor ?? 0} FZ</Pill>
                   </div>
                   <div className="col-span-6 sm:col-span-2 flex justify-end gap-2">
+                    <Button size="sm" onClick={()=>{ setSheetCharId(c.id); setSheetOpen(true); }}>Ver Ficha</Button>
+                    // ✅ EDITADO AQUÍ: botón ver ficha
                     <Button size="sm" variant="outline" onClick={()=>setEditingCharId(c.id)}>Editar</Button>
                     <Button size="sm" variant="destructive" onClick={()=>deleteCharacter(c.id)}><Trash2 className="w-4 h-4"/></Button>
                   </div>
@@ -1160,7 +1506,16 @@ async function deleteSpecies(idToDelete: string) {
             <Leaderboard characters={store.characters} bonuses={store.bonuses} species={store.species} />
           </Section>
         </TabsContent>
-      </Tabs>
+      
+      {/* ✅ EDITADO AQUÍ: render modal de ficha */}
+      <CharacterSheetModal
+        open={sheetOpen}
+        onClose={()=>{ setSheetOpen(false); setSheetCharId(null); }}
+        character={store.characters.find(ch => ch.id === sheetCharId) ?? null}
+        species={store.species}
+        bonuses={store.bonuses}
+      />
+</Tabs>
     </div>
   );
 }
