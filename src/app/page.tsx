@@ -1042,24 +1042,37 @@ export default function MiniApp() {
 
           
           {tab === "species" && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Section title={editingSpeciesId ? "Editar Especie" : "Nueva Especie"} actions={editingSpeciesId && (<Button variant="outline" onClick={() => setEditingSpeciesId(null)}>Cancelar</Button>)}>
-                <SpeciesForm
-                  initial={store.species.find(s => s.id === editingSpeciesId) ?? undefined}
-                  statOptions={[...DEFAULT_STATS as any, ...store.extraStats]}
-                  onSubmit={async (s) => { await upsertSpecies(s); setEditingSpeciesId(null); }}
-                />
-              </Section>
-              <Section title={\`Listado de Especies (\${store.species.length})\`}>
-                <div className="divide-y">
-                  {store.species.length === 0 && <div className="text-sm opacity-70">No hay especies aún.</div>}
-                  {store.species.map((s) => (
-                    <SpeciesRow key={s.id} s={s} onEdit={() => setEditingSpeciesId(s.id)} onDelete={() => deleteSpecies(s.id)} />
-                  ))}
-                </div>
-              </Section>
-            </div>
-          )}
+  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <Section
+      title={editingSpeciesId ? "Editar Especie" : "Nueva Especie"}
+      actions={editingSpeciesId && (
+        <Button variant="outline" onClick={() => setEditingSpeciesId(null)}>Cancelar</Button>
+      )}
+    >
+      <SpeciesForm
+        initial={store.species.find(s => s.id === editingSpeciesId) ?? undefined}
+        statOptions={[...DEFAULT_STATS as any, ...store.extraStats]}
+        onSubmit={async (s) => { await upsertSpecies(s); setEditingSpeciesId(null); }}
+      />
+    </Section>
+
+    <Section title={`Listado de Especies (${store.species.length})`}>
+      <div className="divide-y">
+        {store.species.length === 0 && (
+          <div className="text-sm opacity-70">No hay especies aún.</div>
+        )}
+        {store.species.map((s) => (
+          <SpeciesRow
+            key={s.id}
+            s={s}
+            onEdit={() => setEditingSpeciesId(s.id)}
+            onDelete={() => deleteSpecies(s.id)}
+          />
+        ))}
+      </div>
+    </Section>
+  </div>
+)}
 {tab === "rank" && (
             <Section title="Rankings por Estadística">
               <Leaderboard characters={store.characters} bonuses={store.bonuses} statOptions={statOptions} />
