@@ -93,6 +93,13 @@ function classifyStat(value: number): { base: typeof BASE_RANKS[number]; sub: st
   return hit ? { base: hit.base, sub: hit.sub } : { base: "Deidad", sub: "Deidad Élite" };
 }
 
+function computeMindFromWisdomAndInt(intel: number, sab: number): number {
+  const i = Math.max(0, intel || 0);
+  const s = Math.max(0, sab || 0);
+  return Math.round(Math.sqrt(i * s));
+}
+
+
 const DEFAULT_STATS = [
   "Fuerza","Resistencia","Destreza","Mente","Vitalidad","Inteligencia","Sabiduría"
 ] as const;
@@ -101,28 +108,6 @@ const DEFAULT_STATS = [
 function uid(prefix = "id"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 }
-
-function getSpeciesByName(speciesArr: Species[], name?: string | null) {
-  if (!name) return null;
-  return (
-    speciesArr.find(
-      (s) => s.nombre.trim().toLowerCase() === name.trim().toLowerCase()
-    ) ?? null
-  );
-}
-
-function convertStatValue(
-  statKey: string,
-  valor: number,
-  sp?: Species | null
-): { cantidad: number; unidad: string } | null {
-  if (!sp) return null;
-  const eq = sp.equivalencias?.[statKey];
-  if (!eq || !eq.unidad) return null;
-  const cantidad = (valor ?? 0) * (eq.valorPorPunto ?? 0);
-  return { cantidad, unidad: eq.unidad };
-}
-
 
 function downloadJSON(filename: string, data: unknown) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
@@ -145,6 +130,17 @@ type BonusMode = "Porcentaje" | "Puntos";
 
 type BonusTarget = { stat: StatKey; modo: BonusMode; cantidadPorNivel: number };
 
+type Equivalencia = { unidad: string; valorPorPunto: number };
+
+type Species = {
+  id: string;
+  nombre: string;
+  descripcion: string;
+  equivalencias: Record<string, Equivalencia>;
+  accesoMente?: boolean;
+};
+
+
 type Bonus = {
   id: string;
   nombre: string;
@@ -155,18 +151,6 @@ type Bonus = {
   cantidadPorNivel?: number; // legacy
   nivelMax: number;
 };
-
-
-type Equivalencia = { unidad: string; valorPorPunto: number };
-
-type Species = {
-  id: string;
-  nombre: string;
-  descripcion: string;
-  equivalencias: Record<string, Equivalencia>;
-};
-
-
 
 export type Character = {
   id: string;
@@ -203,7 +187,14 @@ type Store = {
   species: Species[];
 };
 
-const EMPTY_STORE: Store = { skills: [], characters: [], evoLinks: [], bonuses: [], extraStats: [], species: [] };
+const EMPTY_STORE: Store = {
+  skills: [],
+  characters: [],
+  evoLinks: [],
+  bonuses: [],
+  extraStats: [],
+  species: [],
+};
 
 /**********************
  * Cálculos           *
@@ -415,6 +406,7 @@ function EvolutionEditor({ skills, links, onAdd }: { skills: Skill[]; links: Evo
 function BonusForm({ initial, onSubmit, statOptions }: { initial?: Bonus; onSubmit: (b: Bonus) => void; statOptions: string[] }) {
   const [nombre, setNombre] = useState(initial?.nombre ?? "");
   const [descripcion, setDescripcion] = useState(initial?.descripcion ?? "");
+  const [accesoMente, setAccesoMente] = useState<boolean>(initial?.accesoMente ?? true);
   const [objetivo, setObjetivo] = useState<StatKey>(initial?.objetivo ?? (statOptions[0] as StatKey));
   const [modo, setModo] = useState<BonusMode>(initial?.modo ?? "Puntos");
   const [cantidadPorNivel, setCantidadPorNivel] = useState<number>(initial?.cantidadPorNivel ?? 1);
@@ -474,7 +466,7 @@ function BonusRow({ b, onEdit, onDelete }: { b: Bonus; onEdit: () => void; onDel
   );
 }
 
-function StatEditor({ stats, onChange, extraStats, onAddStat }: { stats: Character["stats"]; onChange: (k: StatKey, patch: Partial<{ valor: number; rango: string }>) => void; extraStats: string[]; onAddStat: (name: string) => void; }) {
+function StatEditor({ stats, onChange, extraStats, onAddStat, hasMind }: { stats: Character[\"stats\"]; onChange: (k: StatKey, patch: Partial<{ valor: number; rango: string }>) => void; extraStats: string[]; onAddStat?: (name: string) => void; hasMind?: boolean; }) {
   const [newStat, setNewStat] = useState("");
   const statKeys = useMemo(() => {
     const base = [...DEFAULT_STATS];
@@ -488,6 +480,25 @@ function StatEditor({ stats, onChange, extraStats, onAddStat }: { stats: Charact
         {statKeys.map((k) => {
           const entry = stats[k] ?? { valor: 0, rango: "Humano Bajo" };
           const cls = classifyStat(entry.valor);
+
+          // ---- Mente derivada (equilibrio entre INT y SAB) ----
+          const isMind = k.toLowerCase() === "mente";
+          /// Busca la clave "Inteligencia" sin importar mayúsculas
+            const intelKey =
+              Object.keys(stats).find((s) => s.toLowerCase() === "inteligencia") ?? "Inteligencia";
+
+            // Busca la clave "Sabiduría/Sabiduria" sin importar tilde o mayúsculas
+            const sabKey =
+              Object.keys(stats).find((s) => {
+                  const ls = s.toLowerCase();
+            return ls === "sabiduría" || ls === "sabiduria" || ls.startsWith("sabid");
+            }) ?? "Sabiduría";
+
+            const intelVal = stats[intelKey]?.valor ?? 0;
+            const sabVal   = stats[sabKey]?.valor ?? 0;
+
+            const autoMind = computeMindFromWisdomAndInt(intelVal, sabVal);
+
           return (
             <Card key={k} className="p-3">
               <div className="flex items-center justify-between gap-2">
@@ -497,31 +508,59 @@ function StatEditor({ stats, onChange, extraStats, onAddStat }: { stats: Charact
                   <Badge className="rounded-2xl" title="Rango real">{cls.sub}</Badge>
                 </div>
               </div>
+
               <div className="mt-3 grid grid-cols-3 gap-2 items-center">
                 <Label>Valor</Label>
-                <Input inputMode="numeric" type="number" className="col-span-2" value={entry.valor} onChange={(e) => {
-                  const v = parseFloat(e.target.value || "0");
-                  const derived = classifyStat(v);
-                  onChange(k, { valor: v, rango: derived.sub });
-                }} />
-                <div className="col-span-3 text-[11px] opacity-70">La clasificación se actualiza automáticamente según el valor.</div>
+                <Input
+                  inputMode="numeric"
+                  type="number"
+                  className="col-span-2"
+                  value={isMind ? (hasMind === false ? 0 : autoMind) : entry.valor}
+                  disabled={isMind || hasMind === false}
+                  onChange={(e) => {
+                    if (isMind) return; // Mente no se edita a mano
+                    const v = parseFloat(e.target.value || "0");
+                    const derived = classifyStat(v);
+                    onChange(k, { valor: v, rango: derived.sub });
+                  }}
+                />
+                {isMind && (
+                  <div className="col-span-3 text-[11px] opacity-70">
+                    Mente se calcula automáticamente con Inteligencia y Sabiduría. (Esta especie {hasMind === false ? "NO tiene acceso a Mente" : "sí tiene acceso a Mente"}.)
+                  </div>
+                )}
               </div>
             </Card>
           );
         })}
       </div>
+
       <div className="flex gap-2 items-end flex-wrap">
         <div className="flex-1 min-w-[220px]">
           <Label>Nueva estadística</Label>
-          <Input value={newStat} onChange={(e) => setNewStat(e.target.value)} placeholder="Ej: Chakra, Haki, Magia"/>
+          <Input
+            value={newStat}
+            onChange={(e) => setNewStat(e.target.value)}
+            placeholder="Ej: Chakra, Haki, Magia"
+          />
         </div>
-        <Button type="button" variant="outline" onClick={() => { if (!newStat.trim()) return; onAddStat(newStat.trim()); setNewStat(""); }} className="gap-2">
-          <Plus className="w-4 h-4"/>Añadir stat
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            if (!newStat.trim()) return;
+            onAddStat?.(newStat.trim());
+            setNewStat("");
+          }}
+          className="gap-2"
+        >
+          <Plus className="w-4 h-4" />Añadir stat
         </Button>
       </div>
     </div>
   );
 }
+
 
 function CharacterForm({ initial, onSubmit, skills, bonuses, extraStats }: { initial?: Character; onSubmit: (c: Character) => void; skills: Skill[]; bonuses: Bonus[]; extraStats: string[]; }) {
   const [nombre, setNombre] = useState(initial?.nombre ?? "");
@@ -562,13 +601,24 @@ function CharacterForm({ initial, onSubmit, skills, bonuses, extraStats }: { ini
   }
 
   function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const base: Character = {
-      id: initial?.id ?? (globalThis.crypto?.randomUUID?.() ?? uid("char")),
-      nombre, especie, descripcion, nivel, stats, habilidades, bonos,
-    };
-    onSubmit(base);
-  }
+    const intelKey =
+  Object.keys(stats).find((s) => s.toLowerCase() === "inteligencia") ?? "Inteligencia";
+
+  const sabKey =
+    Object.keys(stats).find((s) => {
+      const ls = s.toLowerCase();
+       return ls === "sabiduría" || ls === "sabiduria" || ls.startsWith("sabid");
+     }) ?? "Sabiduría";
+
+    const intelVal = stats[intelKey]?.valor ?? 0;
+    const sabVal   = stats[sabKey]?.valor ?? 0;
+
+    const mindValRaw = computeMindFromWisdomAndInt(intelVal, sabVal);
+  const mindVal = speciesHasMind ? mindValRaw : 0;
+    const finalStats = {
+     ...stats,
+      Mente: { valor: mindVal, rango: classifyStat(mindVal).sub },
+  };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -592,7 +642,7 @@ function CharacterForm({ initial, onSubmit, skills, bonuses, extraStats }: { ini
 
       <Field label="Descripción"><Textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)} className="min-h-[96px]"/></Field>
 
-      <Section title="Estadísticas (base)"><StatEditor stats={stats} onChange={upStat} extraStats={extraStats} onAddStat={() => {}}/></Section>
+      <Section title="Estadísticas (base)"><StatEditor stats={stats} onChange={upStat} extraStats={store.extraStats} hasMind={speciesHasMind} onAddStat={() => {}}/></Section>
 
       <Section title="Habilidades del personaje">
         <div className="space-y-2">
@@ -659,25 +709,8 @@ function CharacterForm({ initial, onSubmit, skills, bonuses, extraStats }: { ini
   );
 }
 
-function CharacterRow({ c, onEdit, onDelete, skillsById, bonuses, speciesArr }: {
-c: Character;
-onEdit: () => void;
-onDelete: () => void;
-skillsById: Record<string, Skill>;
-bonuses: Bonus[];
-speciesArr: Species[];
-}) {
+function CharacterRow({ c, onEdit, onDelete, skillsById, bonuses }: { c: Character; onEdit: () => void; onDelete: () => void; skillsById: Record<string, Skill>; bonuses: Bonus[] }) {
   const entries = Object.entries(c.stats).slice(0,3);
-  // especie actual del personaje
-  const sp = getSpeciesByName(speciesArr, c.especie);
-  // valores base
-    const vInt = c.stats?.["Inteligencia"]?.valor ?? 0;
-    const vFue = c.stats?.["Fuerza"]?.valor ?? 0;
-    const vVel = c.stats?.["Velocidad"]?.valor ?? 0;
-     // equivalencias (si existen)
-     const eqInt = convertStatValue("Inteligencia", vInt, sp); // p.ej. chakra
-     const eqFue = convertStatValue("Fuerza", vFue, sp);       // p.ej. kg
-     const eqVel = convertStatValue("Velocidad", vVel, sp);    // p.ej. m/s
   return (
     <div className="grid grid-cols-12 items-center gap-2 py-2 border-b">
       <div className="col-span-12 sm:col-span-4">
@@ -686,21 +719,9 @@ speciesArr: Species[];
       </div>
       <div className="col-span-12 sm:col-span-4 text-xs">
         <div className="flex flex-wrap gap-1">
-            {c.habilidades.slice(0, 4).map(h => (
-              <Badge key={h.skillId} className="rounded-2xl truncate max-w-[160px]" title={skillsById[h.skillId]?.nombre ?? "?"}>
-              {skillsById[h.skillId]?.nombre ?? "?"} ({h.nivel})
-              </Badge>
-         ))}
+          {c.habilidades.slice(0, 4).map(h => (<Badge key={h.skillId} className="rounded-2xl truncate max-w-[160px]" title={skillsById[h.skillId]?.nombre ?? "?"}>{skillsById[h.skillId]?.nombre ?? "?"} ({h.nivel})</Badge>))}
           {c.habilidades.length > 4 && <Badge className="rounded-2xl">+{c.habilidades.length - 4}</Badge>}
         </div>
-        {/* Chips con equivalencias principales */}
-     <div className="col-span-12 sm:col-span-5 text-xs">
-       <div className="mt-1 flex flex-wrap gap-1">
-        {eqInt && <Badge className="rounded-2xl">INT ≈ {Math.round(eqInt.cantidad)} {eqInt.unidad}</Badge>}
-        {eqFue && <Badge className="rounded-2xl">FUE ≈ {Math.round(eqFue.cantidad)} {eqFue.unidad}</Badge>}
-          {eqVel && <Badge className="rounded-2xl">VEL ≈ {Number(eqVel.cantidad.toFixed(2))} {eqVel.unidad}</Badge>}
-       </div>
-     </div>
       </div>
       <div className="col-span-12 sm:col-span-3 text-xs">
         <div className="flex flex-wrap gap-1">
@@ -798,25 +819,68 @@ export default function MiniApp() {
   const [editingCharId, setEditingCharId] = useState<string | null>(null);
   const [editingBonusId, setEditingBonusId] = useState<string | null>(null);
   const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
-  const [editingSpeciesId, setEditingSpeciesId] = useState<string | null>(null);
-
 
   const loadData = useCallback(async () => {
-    const { data: skills } = await supabase.from("skills").select("*");
-    const { data: characters } = await supabase.from("characters").select("*");
-    const { data: evo_links } = await supabase.from("evo_links").select("*");
-    const { data: bonuses } = await supabase.from("bonuses").select("*");
-    const { data: extra_stats } = await supabase.from("extra_stats").select("*");
-    const { data: species } = await supabase.from("species").select("*").order("nombre", { ascending: true });
+  try {
+    const { data: skills }       = await supabase.from("skills").select("*");
+    const { data: characters }   = await supabase.from("characters").select("*");
+    const { data: evo_links }    = await supabase.from("evo_links").select("*");
+    const { data: bonuses }      = await supabase.from("bonuses").select("*");
+    const { data: extra_stats }  = await supabase.from("extra_stats").select("*");
+    const { data: species, error: spErr } = await supabase
+      .from("species")
+      .select("*")
+      .order("nombre", { ascending: true });
+
+    if (spErr) {
+      console.error("[species] load error:", spErr);
+    }
+
     setStore({
-      skills: (skills ?? []).map((s: any) => ({ id: s.id, nombre: s.nombre, nivel: s.nivel, nivelMax: s.nivelMax, incremento: s.incremento, clase: s.clase, tier: s.tier, definicion: s.definicion, personajes: Array.isArray(s.personajes) ? s.personajes : [], })),
+      skills: (skills ?? []).map((s: any) => ({
+        id: s.id,
+        nombre: s.nombre,
+        nivel: s.nivel,
+        nivelMax: s.nivelMax,
+        incremento: s.incremento,
+        clase: s.clase,
+        tier: s.tier,
+        definicion: s.definicion,
+        personajes: Array.isArray(s.personajes) ? s.personajes : [],
+      })),
+
       characters: (characters ?? []) as Character[],
-      evoLinks: (evo_links ?? []).map((e: any) => ({ from: e.from_skill, to: e.to_skill })) ?? [],
-      bonuses: (bonuses ?? []).map((b: any) => ({ id: b.id, nombre: b.nombre, descripcion: b.descripcion, objetivo: b.objetivo, modo: b.modo, cantidadPorNivel: b.cantidad_por_nivel, nivelMax: b.nivel_max, })) as Bonus[],
+
+      evoLinks: (evo_links ?? []).map((e: any) => ({
+        from: e.from_skill,
+        to: e.to_skill,
+      })),
+
+      bonuses: (bonuses ?? []).map((b: any) => ({
+        id: b.id,
+        nombre: b.nombre,
+        descripcion: b.descripcion,
+        objetivo: b.objetivo,
+        modo: b.modo,
+        cantidadPorNivel: b.cantidad_por_nivel,
+        nivelMax: b.nivel_max,
+      })) as Bonus[],
+
       extraStats: (extra_stats ?? []).map((e: any) => e.name) ?? [],
-      species: (species ?? []).map((s: any) => ({ id: s.id, nombre: s.nombre, descripcion: s.descripcion ?? "", equivalencias: (s.equivalencias ?? {}) as Record<string, Equivalencia> })),
+
+      species: (species ?? []).map((s: any) => ({
+        id: s.id,
+        nombre: s.nombre,
+        descripcion: s.descripcion ?? "",
+        equivalencias: (s.equivalencias ?? {}) as Record<string, Equivalencia>, accesoMente: (s.acceso_mente ?? s.accesoMente ?? true),
+      })),
     });
-  }, []);
+  } catch (err) {
+    console.error("loadData() error:", err);
+  }
+}, []);
+
+
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -884,21 +948,6 @@ export default function MiniApp() {
     setStore(prev => prev.extraStats.includes(name) ? prev : { ...prev, extraStats: [...prev.extraStats, name] });
   }
 
-  async function upsertSpecies(s: Species) {
-    const id = s.id || (globalThis.crypto?.randomUUID?.() ?? uid("spec"));
-    const { error } = await supabase.from("species").upsert({
-      id, nombre: s.nombre, descripcion: s.descripcion, equivalencias: s.equivalencias,
-    });
-    if (error) { alert("Error guardando especie: " + error.message); return; }
-    await loadData();
-  }
-
-  async function deleteSpecies(id: string) {
-    const { error } = await supabase.from("species").delete().eq("id", id);
-    if (error) { alert("Error eliminando especie: " + error.message); return; }
-    setStore(prev => ({ ...prev, species: prev.species.filter(s => s.id !== id) }));
-  }
-
   const filteredSkills = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return store.skills;
@@ -948,7 +997,7 @@ export default function MiniApp() {
                   const b1: Bonus = { id: uid("bonus"), nombre: "Entrenamiento Fuerza", descripcion: "+5 puntos de Fuerza por nivel", objetivo: "Fuerza", modo: "Puntos", cantidadPorNivel: 5, nivelMax: 10 };
                   const b2: Bonus = { id: uid("bonus"), nombre: "Bendición Vital", descripcion: "+2% Vitalidad por nivel", objetivo: "Vitalidad", modo: "Porcentaje", cantidadPorNivel: 2, nivelMax: 20 };
                   const ch1: Character = { id: uid("char"), nombre: "Naruto", especie: "Dragón-Uzumaki", descripcion: "Líder de Uzushiogakure.", nivel: 1, stats: { Fuerza:{ valor:100, rango: classifyStat(100).sub }, Resistencia:{ valor:100, rango: classifyStat(100).sub }, Destreza:{ valor:100, rango: classifyStat(100).sub }, Mente:{ valor:150, rango: classifyStat(150).sub }, Vitalidad:{ valor:100, rango: classifyStat(100).sub } }, habilidades: [], bonos: [] };
-                  setStore({ skills: [sk1, sk2, sk3], characters: [ch1], evoLinks: [{ from: sk1.id, to: sk3.id }], bonuses: [b1,b2], extraStats: [] , species: [] });
+                  setStore({ skills: [sk1, sk2, sk3], characters: [ch1], evoLinks: [{ from: sk1.id, to: sk3.id }], bonuses: [b1,b2], extraStats: [] });
                 }} className="gap-2"><Wand2 className="w-4 h-4"/>Demo</Button>
               </div>
             </div>
@@ -961,7 +1010,6 @@ export default function MiniApp() {
                   <TabsTrigger value="bonos">Bonificaciones</TabsTrigger>
                   <TabsTrigger value="evo">Síntesis/Evolución</TabsTrigger>
                   <TabsTrigger value="rank">Rankings</TabsTrigger>
-                  <TabsTrigger value="species">Especies</TabsTrigger>
                 </TabsList>
               </Tabs>
               {/* Botón limpiar edición (móvil/desktop) */}
@@ -1034,7 +1082,7 @@ export default function MiniApp() {
                 <div className="divide-y">
                   {filteredChars.length === 0 && <div className="text-sm opacity-70">No hay personajes aún.</div>}
                   {filteredChars.map((c) => (
-                    <CharacterRow key={c.id} c={c} skillsById={skillsById} bonuses={store.bonuses} onEdit={() => setEditingCharId(c.id)} onDelete={() => deleteCharacter(c.id)} speciesArr={store.species}/>
+                    <CharacterRow key={c.id} c={c} skillsById={skillsById} bonuses={store.bonuses} onEdit={() => setEditingCharId(c.id)} onDelete={() => deleteCharacter(c.id)} />
                   ))}
                 </div>
               </Section>
@@ -1094,132 +1142,12 @@ export default function MiniApp() {
             </Section>
           )}
 
-          
-          {tab === "species" && (
-  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-    <Section
-      title={editingSpeciesId ? "Editar Especie" : "Nueva Especie"}
-      actions={editingSpeciesId && (
-        <Button variant="outline" onClick={() => setEditingSpeciesId(null)}>Cancelar</Button>
-      )}
-    >
-      <SpeciesForm
-        initial={store.species.find(s => s.id === editingSpeciesId) ?? undefined}
-        statOptions={[...DEFAULT_STATS as any, ...store.extraStats]}
-        onSubmit={async (s) => { await upsertSpecies(s); setEditingSpeciesId(null); }}
-      />
-    </Section>
-
-    <Section title={`Listado de Especies (${store.species.length})`}>
-      <div className="divide-y">
-        {store.species.length === 0 && (
-          <div className="text-sm opacity-70">No hay especies aún.</div>
-        )}
-        {store.species.map((s) => (
-          <SpeciesRow
-            key={s.id}
-            s={s}
-            onEdit={() => setEditingSpeciesId(s.id)}
-            onDelete={() => deleteSpecies(s.id)}
-          />
-        ))}
-      </div>
-    </Section>
-  </div>
-)}
-{tab === "rank" && (
+          {tab === "rank" && (
             <Section title="Rankings por Estadística">
               <Leaderboard characters={store.characters} bonuses={store.bonuses} statOptions={statOptions} />
             </Section>
           )}
         </div>
-      </div>
-    </div>
-  );
-}
-
-
-
-function SpeciesForm({ initial, onSubmit, statOptions }: { initial?: Species; onSubmit: (s: Species) => void; statOptions: string[]; }) {
-  const [nombre, setNombre] = useState(initial?.nombre ?? "");
-  const [descripcion, setDescripcion] = useState(initial?.descripcion ?? "");
-  const [eq, setEq] = useState<Record<string, Equivalencia>>(() => {
-    const base: Record<string, Equivalencia> = {};
-    statOptions.forEach(s => { base[s] = initial?.equivalencias?.[s] ?? { unidad: "", valorPorPunto: 0 }; });
-    return base;
-  });
-
-  function setEqField(stat: string, patch: Partial<Equivalencia>) {
-    setEq(prev => ({ ...prev, [stat]: { ...(prev[stat] || { unidad: "", valorPorPunto: 0 }), ...patch } }));
-  }
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    for (const s of statOptions) {
-      const it = eq[s];
-      if (!it || !it.unidad.trim() || !(it.valorPorPunto > 0)) {
-        alert(`Completa equivalencias para '${s}' (unidad y valorPorPunto > 0).`);
-        return;
-      }
-    }
-    const out: Species = { id: initial?.id ?? (globalThis.crypto?.randomUUID?.() ?? uid("spec")), nombre, descripcion, equivalencias: eq };
-    onSubmit(out);
-  }
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-3">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <Field label="Nombre de especie"><Input value={nombre} onChange={(e)=>setNombre(e.target.value)} placeholder="Ej: Humano, Uzumaki, Dragón" /></Field>
-        <Field label="Descripción"><Input value={descripcion} onChange={(e)=>setDescripcion(e.target.value)} placeholder="Opcional" /></Field>
-      </div>
-      <Section title="Equivalencias por punto (obligatorio)">
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-          {statOptions.map(stat => {
-            const item = eq[stat];
-            return (
-              <Card key={stat} className="p-3">
-                <div className="font-medium">{stat}</div>
-                <div className="mt-2 grid grid-cols-3 gap-2 items-center">
-                  <Label>Unidad</Label>
-                  <Input className="col-span-2" value={item.unidad} onChange={(e)=>setEqField(stat, { unidad: e.target.value })} placeholder={stat==="Inteligencia" ? "chakra" : stat==="Fuerza" ? "kg" : "unidad"} />
-                  <Label>Valor/Punto</Label>
-                  <Input inputMode="numeric" type="number" min={0} step="any" className="col-span-2" value={item.valorPorPunto} onChange={(e)=>setEqField(stat, { valorPorPunto: parseFloat(e.target.value || "0") })} />
-                </div>
-                {stat==="Mente" && (
-                  <div className="text-[11px] opacity-70 mt-2">
-                    Nota: Mente es derivada (equilibrio INT↔SAB). Puedes registrar unidad/escala si quieres convertirla.
-                  </div>
-                )}
-              </Card>
-            );
-          })}
-        </div>
-      </Section>
-      <div className="flex justify-end gap-2">
-        <Button type="submit" className="gap-2"><Save className="w-4 h-4" />Guardar especie</Button>
-      </div>
-    </form>
-  );
-}
-
-function SpeciesRow({ s, onEdit, onDelete }: { s: Species; onEdit: () => void; onDelete: () => void }) {
-  return (
-    <div className="grid grid-cols-12 items-center gap-2 py-2 border-b">
-      <div className="col-span-12 sm:col-span-5">
-        <div className="font-medium truncate">{s.nombre}</div>
-        <div className="text-xs opacity-70 line-clamp-1">{s.descripcion}</div>
-      </div>
-      <div className="col-span-12 sm:col-span-5 text-xs">
-        <div className="flex flex-wrap gap-1">
-          {Object.entries(s.equivalencias).slice(0,4).map(([k,v]) => (
-            <Badge key={k} className="rounded-2xl">{k}: 1pt = {v.valorPorPunto} {v.unidad}</Badge>
-          ))}
-          {Object.keys(s.equivalencias).length > 4 && <Badge className="rounded-2xl">+{Object.keys(s.equivalencias).length - 4}</Badge>}
-        </div>
-      </div>
-      <div className="col-span-12 sm:col-span-2 flex justify-end gap-2">
-        <Button variant="outline" size="sm" onClick={onEdit}><Settings2 className="w-4 h-4"/></Button>
-        <Button variant="destructive" size="sm" onClick={onDelete}><Trash2 className="w-4 h-4"/></Button>
       </div>
     </div>
   );
