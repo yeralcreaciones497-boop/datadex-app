@@ -1549,7 +1549,6 @@ async function deleteSpecies(idToDelete: string) {
               <Field label="Descripción"><Textarea name="descripcion" defaultValue={editingBonus?.descripcion ?? ""}/></Field>
               <div className="flex justify-end"><Button type="submit" className="gap-2"><Save className="w-4 h-4"/>Guardar bonificación</Button></div>
             </form>
-          </Section>
           <Section title={`Listado de bonificaciones (${store.bonuses.length})`}>
             <div className="divide-y">
               {store.bonuses.map(b => (
