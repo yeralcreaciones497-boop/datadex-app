@@ -502,34 +502,36 @@ function CharacterForm({
   const selectedSpecies = useMemo(() => species.find(s => s.nombre === (customSpec.trim() || especie)), [species, especie, customSpec]);
 
   function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const finalSpeciesName = (customSpec.trim() || especie);
-    const sp = species.find(s => s.nombre === finalSpeciesName);
-    const intelKey = Object.keys(stats).find((s) => s.toLowerCase() === "inteligencia") ?? "Inteligencia";
-    const sabKey   = Object.keys(stats).find((s) => ["sabiduría","sabiduria"].includes(s.toLowerCase()) || s.toLowerCase().startsWith("sabid")) ?? "Sabiduría";
-    const intelVal = stats[intelKey]?.valor ?? 0; const sabVal = stats[sabKey]?.valor ?? 0;
-    const mindVal  = sp?.allowMind ? computeMind(intelVal, sabVal) : 0;
+  e.preventDefault();
+  const finalSpeciesName = (customSpec.trim() || especie);
+  const sp = species.find(s => s.nombre === finalSpeciesName);
 
-    let finalStats: Character["stats"] = { ...stats, Mente: { valor: mindVal, rango: classifyStat(mindVal).sub } };
+  const intelKey = Object.keys(stats).find(s => s.toLowerCase() === "inteligencia") ?? "Inteligencia";
+  const sabKey   = Object.keys(stats).find(s => ["sabiduría","sabiduria"].includes(s.toLowerCase()) || s.toLowerCase().startsWith("sabid")) ?? "Sabiduría";
 
-    // Snapshot sumando mods de especie
-    if (sp?.baseMods?.length) {
-      let flat: Record<string, number> = {}; let perc: Record<string, number> = {};
-      for (const m of sp.baseMods) {
-        if (m.modo === "Puntos") flat[m.stat] = (flat[m.stat] ?? 0) + (m.cantidad * (nivel ?? 1));
-        else perc[m.stat] = (perc[m.stat] ?? 0) + (m.cantidad / 100);
-      }
-      for (const k of Object.keys(finalStats)) {
-        const base = finalStats[k].valor ?? 0;
-        const withPerc = base * (1 + (perc[k] ?? 0));
-        const withFlat = withPerc + (flat[k] ?? 0);
-        finalStats[k] = { valor: Math.round(withFlat * 100) / 100, rango: classifyStat(withFlat).sub };
-      }
-    }
+  const intelVal = stats[intelKey]?.valor ?? 0;
+  const sabVal   = stats[sabKey]?.valor ?? 0;
+  const mindVal  = sp?.allowMind ? computeMind(intelVal, sabVal) : 0;
 
-    const out: Character = { id: initial?.id ?? uid("char"), nombre, especie: finalSpeciesName, descripcion, nivel, stats: finalStats, habilidades: [], bonos };
-    onSubmit(out);
-  }
+  // ✅ Guardamos estadísticas base + Mente auto (sin sumar especie aquí)
+  const finalStats: Character["stats"] = {
+    ...stats,
+    Mente: { valor: mindVal, rango: classifyStat(mindVal).sub }
+  };
+
+  const out: Character = {
+    id: initial?.id ?? crypto.randomUUID(),
+    nombre,
+    especie: finalSpeciesName,
+    descripcion,
+    nivel,
+    stats: finalStats,
+    habilidades: [],
+    bonos
+  };
+  onSubmit(out);
+}
+
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
