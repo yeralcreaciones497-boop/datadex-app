@@ -804,13 +804,18 @@ function StatEditor({
 }
 
 function CharacterForm({
-  initial, onSubmit, bonuses, species
-}: {
-  initial?: Character;
-  onSubmit: (c: Character) => void;
-  bonuses: Bonus[];
-  species: Species[];
-}) {
+    initial,
+    onSubmit,
+    bonuses,
+    species,
+    extraStats
+  }: {
+    initial?: Character;
+    onSubmit: (c: Character) => void;
+    bonuses: Bonus[];
+    species: Species[];
+    extraStats: string[];          // ← tipo correcto (sin = ni store)
+  }) {
   const [nombre, setNombre] = useState(initial?.nombre ?? "");
   const [especie, setEspecie] = useState(initial?.especie ?? "");
   const [customSpec, setCustomSpec] = useState("");
@@ -923,7 +928,7 @@ function CharacterForm({
         <StatEditor
           stats={stats}
           onChange={upStat}
-          extraStats={[]}
+          extraStats={extraStats}
           mindPolicy={!selectedSpecies ? "auto" : (selectedSpecies.allowMind ? "auto" : "none")}
         />
       </Section>
@@ -1467,7 +1472,13 @@ async function deleteSpecies(idToDelete: string) {
         {/* PERSONAJES */}
         <TabsContent value="characters" className="mt-4 space-y-3">
           <Section title={editingChar ? "Editar personaje" : "Nuevo personaje"} actions={editingChar && <Button variant="outline" onClick={()=>setEditingCharId(null)}>Cancelar</Button>}>
-            <CharacterForm key={editingChar?.id ?? "new-char"} bonuses={store.bonuses} onSubmit={(c) => { setEditingCharId(null); upsertCharacter(c); }} initial={editingChar ?? undefined} species={store.species} />
+           <CharacterForm
+              initial={editingChar ?? undefined}
+              onSubmit={upsertCharacter}
+              bonuses={store.bonuses}
+              species={store.species}
+              extraStats={store.extraStats}
+          />
           </Section>
           <Section title={`Listado de personajes (${store.characters.length})`}>
             <div className="divide-y">
