@@ -706,11 +706,12 @@ export default function Page() {
 
   // Persistencia mínima (ajústalo a tus tablas reales)
   async function upsertSkill(s: Skill) {
-  const rowId = isUUID(s.id) ? s.id : uid("skill");
+  const rowId = isUUID(s.id) ? s.id : crypto.randomUUID();
   const { error } = await supabase.from("skills").upsert({ ...s, id: rowId });
   if (error) alert("Error guardando habilidad: " + error.message);
   await loadData();
 }
+
 
 async function deleteSkill(idToDelete: string) {
   const { error } = await supabase.from("skills").delete().eq("id", idToDelete);
@@ -725,11 +726,12 @@ async function addEvo(from: string, to: string) {
 }
 
 async function upsertBonus(b: Bonus) {
-  const rowId = isUUID(b.id) ? b.id : uid("bonus");
+  const rowId = isUUID(b.id) ? b.id : crypto.randomUUID();
   const { error } = await supabase.from("bonuses").upsert({ ...b, id: rowId });
   if (error) alert("Error guardando bonificación: " + error.message);
   await loadData();
 }
+
 
 async function deleteBonus(idToDelete: string) {
   const { error } = await supabase.from("bonuses").delete().eq("id", idToDelete);
@@ -738,7 +740,7 @@ async function deleteBonus(idToDelete: string) {
 }
 
 async function upsertCharacter(c: Character) {
-  const rowId = isUUID(c.id) ? c.id : uid("char");
+  const rowId = isUUID(c.id) ? c.id : crypto.randomUUID();
   const { error } = await supabase.from("characters").upsert({ ...c, id: rowId });
   if (error) alert("Error guardando personaje: " + error.message);
   await loadData();
@@ -751,7 +753,7 @@ async function deleteCharacter(idToDelete: string) {
 }
 
 async function upsertSpecies(s: Species) {
-  const rowId = isUUID(s.id) ? s.id : uid("spec");
+  const rowId = isUUID(s.id) ? s.id : crypto.randomUUID();
   const { error } = await supabase.from("species").upsert({
     id: rowId,
     nombre: s.nombre,
@@ -763,6 +765,7 @@ async function upsertSpecies(s: Species) {
   if (error) alert("Error guardando especie: " + error.message);
   await loadData();
 }
+
 
 async function deleteSpecies(idToDelete: string) {
   const { error } = await supabase.from("species").delete().eq("id", idToDelete);
