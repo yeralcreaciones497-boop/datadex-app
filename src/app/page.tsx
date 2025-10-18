@@ -568,7 +568,9 @@ function SpeciesForm({ initial, onSubmit, statOptions }: { initial?: Species; on
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
+    <>
+    {/* STRAY FORM COMMENTED OUT (moved into bonuses tab) */}
+      <form onSubmit={handleSubmit} className="space-y-3">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Field label="Nombre"><Input value={nombre} onChange={(e)=>setNombre(e.target.value)} placeholder="Ej: Dragón, Uzumaki, Humano"/></Field>
         <Field label="Puede usar Mente">
@@ -624,6 +626,7 @@ function SpeciesForm({ initial, onSubmit, statOptions }: { initial?: Species; on
         <Button type="submit" className="gap-2"><Save className="w-4 h-4"/>Guardar especie</Button>
       </div>
     </form>
+    </>
   );
 }
 
@@ -814,7 +817,7 @@ function CharacterForm({
     onSubmit: (c: Character) => void;
     bonuses: Bonus[];
     species: Species[];
-    extraStats: string[];          // ← tipo correcto (sin = ni store)
+    extraStats: string[];         
   }) {
   const [nombre, setNombre] = useState(initial?.nombre ?? "");
   const [especie, setEspecie] = useState(initial?.especie ?? "");
@@ -849,14 +852,14 @@ function CharacterForm({
     });
   }
   function setBonusLevel(bonusId: string, lvl: number) {
-    setBonos(prev => prev.map(b => b.bonusId === bonusId ? { ...b, nivel: Math.max(0, Math.min(lvl, bonuses.find(x=>x.id===bonusId)?.nivelMax ?? lvl)) } : b));
+    setBonos(prev => prev.map(b => b.bonusId === bonusId ? { ...b, nivel: Math.min(Math.max(1, lvl), bonuses.find(x=>x.id===bonusId)?.nivelMax ?? lvl) } : b));
   }
-
-  const selectedSpecies = useMemo(() => species.find(s => s.nombre === (customSpec.trim() || especie)), [species, especie, customSpec]);
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _selectedSpecies = useMemo(() => species.find(s => s.nombre === (customSpec.trim() || especie)), [species, especie, customSpec]);
 
   function handleSubmit(e: React.FormEvent) {
 	e.preventDefault();
-
+    
 	
 	const uniq = uniqEspecies(especiesSel).slice(0, 10);
 	const byId = new Map(species.map(s => [s.id, s]));
@@ -866,14 +869,23 @@ function CharacterForm({
 	));
 	const ordered = principal ? [principal, ...restoOrdenado] : restoOrdenado;
 
-	const intelKey = "Inteligencia";
-	const sabKey = "Sabiduría";
-	const intelVal = Number(stats[intelKey]?.valor ?? 0);
-	const sabVal = Number(stats[sabKey]?.valor ?? 0);
+	const filledStats: Character["stats"] = { ...stats };
+  (extraStats ?? []).forEach((k) => {
+    if (!filledStats[k]) {
+      filledStats[k] = { valor: 0, rango: "Humano Bajo" };
+    }
+  });
+
+  // 2) Usar filledStats en todo lo que sigue
+  const intelKey = "Inteligencia";
+  const sabKey = "Sabiduría";
+  const intelVal = Number(filledStats[intelKey]?.valor ?? 0);
+  const sabVal = Number(filledStats[sabKey]?.valor ?? 0);
 	const allAllowMind = ordered.length === 0 ? true : ordered.every(id => !!byId.get(id)?.allowMind);
 	const mindVal = allAllowMind ? computeMind(intelVal, sabVal) : 0;
 	const finalStats: Character["stats"] = {
-		...stats,
+		...filledStats,
+    
 		Mente: { valor: mindVal, rango: classifyStat(mindVal).sub }
 	};
 
@@ -905,6 +917,7 @@ function CharacterForm({
 		value={especiesSel}
 		onChange={(ids)=>setEspeciesSel(uniqEspecies(ids).slice(0,10))}
 		title="Especies (máx 10)"
+    
 	/>
 </Field>
       </div>
@@ -929,7 +942,7 @@ function CharacterForm({
           stats={stats}
           onChange={upStat}
           extraStats={extraStats}
-          mindPolicy={!selectedSpecies ? "auto" : (selectedSpecies.allowMind ? "auto" : "none")}
+          mindPolicy={(especiesSel.length === 0 ? 'auto' : (especiesSel.every(id => (species.find(s=>s.id===id)?.allowMind)) ? 'auto' : 'none'))}
         />
       </Section>
 
@@ -1180,6 +1193,88 @@ function CharacterSheetModal({
 		</div>
 	);
 }
+
+function GlobalStatsEditor({
+  initial,
+  onSaved,
+}: {
+  initial: string[];
+  onSaved?: () => Promise<void> | void;
+}) {
+  const [list, setList] = React.useState<string[]>(() =>
+    Array.from(new Set((initial ?? []).map(s => s.trim()).filter(Boolean)))
+  );
+  const [newStat, setNewStat] = React.useState("");
+
+  React.useEffect(() => {
+    // si cambia inicial (loadData), sincroniza
+    setList(Array.from(new Set((initial ?? []).map(s => s.trim()).filter(Boolean))));
+  }, [initial]);
+
+  function addStat() {
+    const v = newStat.trim();
+    if (!v) return;
+    if (list.some(x => x.toLowerCase() === v.toLowerCase())) {
+      setNewStat("");
+      return;
+    }
+    setList(prev => [...prev, v]);
+    setNewStat("");
+  }
+
+  function removeStat(name: string) {
+    setList(prev => prev.filter(x => x !== name));
+  }
+
+  async function saveAll() {
+    try {
+      await saveConfigExtraStats(list); // ya existe en tu archivo
+      if (onSaved) await onSaved();
+      alert("Estadísticas globales guardadas.");
+    } catch (e: any) {
+      alert("Error guardando estadísticas globales: " + (e?.message || String(e)));
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <Field label="Nueva estadística">
+          <div className="flex items-center gap-2">
+            <Input value={newStat} onChange={(e) => setNewStat(e.target.value)} placeholder="Ej: Chakra, Haki, Magia" />
+            <Button type="button" variant="outline" onClick={addStat}>Añadir</Button>
+          </div>
+        </Field>
+      </div>
+
+      <div className="rounded-xl border p-3">
+        {list.length === 0 ? (
+          <div className="text-sm opacity-70">No hay estadísticas globales aún.</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+            {list.map((s) => (
+              <div key={s} className="flex items-center justify-between gap-2 p-2 border rounded-lg">
+                <div className="font-medium truncate">{s}</div>
+                <Button type="button" variant="destructive" size="sm" onClick={() => removeStat(s)}>Quitar</Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex justify-end">
+        <Button onClick={saveAll} className="gap-2"><Save className="w-4 h-4" />Guardar</Button>
+      </div>
+
+      <div className="text-xs opacity-70">
+        Estas stats se guardan en <code>app_config(id="global").data.extraStats</code> y se
+        mostrarán automáticamente en cada personaje (no afectan valores hasta que tú los edites en la ficha).
+      </div>
+    </div>
+  );
+}
+
+
 export default function Page() {
   const [store, setStore] = useState<Store>(EMPTY_STORE);
   const [tab, setTab] = useState("skills");
@@ -1310,7 +1405,7 @@ async function deleteSpecies(idToDelete: string) {
             <input type="file" accept="application/json" className="hidden" onChange={(e)=>{
               const f = e.target.files?.[0]; if (!f) return;
               const reader = new FileReader(); reader.onload = () => {
-                try { const data = JSON.parse(String(reader.result)); setStore({ ...EMPTY_STORE, ...data }); } catch { alert("Archivo inválido"); }
+                try { const data = JSON.parse(String(reader.result || "{}")); setStore({ ...EMPTY_STORE, ...data }); } catch { alert("Archivo inválido"); }
               }; reader.readAsText(f); e.target.value = "";
             }} />
             <Button variant="outline">Importar JSON</Button>
@@ -1325,8 +1420,9 @@ async function deleteSpecies(idToDelete: string) {
           <TabsTrigger value="characters">Personajes</TabsTrigger>
           <TabsTrigger value="species">Especies</TabsTrigger>
           <TabsTrigger value="leaderboard">Rankings</TabsTrigger>
+          <TabsTrigger value="config">Config</TabsTrigger>
         </TabsList>
-
+            
         {/* HABILIDADES */}
         <TabsContent value="skills" className="mt-4 space-y-3">
           <Section title={editingSkill ? "Editar habilidad" : "Nueva habilidad"} actions={editingSkill && <Button variant="outline" onClick={()=>setEditingSkillId(null)}>Cancelar</Button>}>
@@ -1343,9 +1439,79 @@ async function deleteSpecies(idToDelete: string) {
         </TabsContent>
 
         {/* BONIFICACIONES */}
-        <TabsContent value="bonuses" className="mt-4 space-y-3">
-          <Section title={editingBonus ? "Editar bonificación" : "Nueva bonificación"} actions={editingBonus && <Button variant="outline" onClick={()=>setEditingBonusId(null)}>Cancelar</Button>}>
-            {/* NUEVO: Formulario Multi-objetivo (hasta 5 consecuencias) */}
+  <TabsContent value="bonuses" className="mt-4 space-y-3">
+    <Section
+      title={editingBonus ? "Editar bonificación" : "Nueva bonificación"}
+      actions={editingBonus && (
+        <Button variant="outline" onClick={() => setEditingBonusId(null)}>Cancelar</Button>
+      )}
+    >
+    {/* NUEVO: Formulario Multi-objetivo (hasta 5 consecuencias) */}
+    {/* inserted form duplicate below */}
+{/* BEGIN: temporarily commenting duplicated species form pasted under bonuses */}
+{/*
+<form onSubmit={handleSubmit} className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <Field label="Nombre"><Input value={nombre} onChange={(e)=>setNombre(e.target.value)} placeholder="Ej: Dragón, Uzumaki, Humano"/></Field>
+        <Field label="Puede usar Mente">
+          <div className="flex items-center gap-2">
+            <Switch checked={allowMind} onCheckedChange={setAllowMind}/>
+            <span className="text-sm opacity-80">{allowMind ? "Sí" : "No"}</span>
+          </div>
+        </Field>
+      </div>
+      <Field label="Descripción"><Textarea value={descripcion} onChange={(e)=>setDescripcion(e.target.value)} className="min-h-[80px]"/></Field>
+
+      <Section title="Modificadores base por especie">
+        <div className="space-y-2">
+          {mods.map((m, i) => (
+            <div key={i} className="grid grid-cols-12 gap-2 items-end">
+              <div className="col-span-4">
+                <Label>Stat</Label>
+                <Select value={String(m.stat)} onValueChange={(v)=>updateMod(i, { stat: v })}>
+                  <SelectTrigger><SelectValue/></SelectTrigger>
+                  <SelectContent className="max-h-60 overflow-auto">
+                    {statOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-3">
+                <Label>Modo</Label>
+                <Select value={m.modo} onValueChange={(v)=>updateMod(i, { modo: v as any })}>
+                  <SelectTrigger><SelectValue/></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Puntos">Puntos</SelectItem>
+                    <SelectItem value="Porcentaje">Porcentaje</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-3">
+                <Label>Cantidad</Label>
+                <Input inputMode="numeric" type="number" value={m.cantidad} onChange={(e)=>updateMod(i, { cantidad: parseFloat(e.target.value || "0") })}/>
+              </div>
+              <div className="col-span-2">
+                <Button type="button" variant="destructive" onClick={()=>removeMod(i)} className="w-full"><Trash2 className="w-4 h-4"/></Button>
+              </div>
+            </div>
+          ))}
+          <Button type="button" variant="outline" onClick={addMod} className="gap-2"><Plus className="w-4 h-4"/>Añadir modificador</Button>
+        </div>
+      </Section>
+
+      <Field label="Equivalencias (JSON)">
+        <Textarea value={equivText} onChange={(e)=>setEquivText(e.target.value)} className="min-h-[140px]" />
+      </Field>
+
+      <div className="flex justify-end gap-2">
+        <Button type="submit" className="gap-2"><Save className="w-4 h-4"/>Guardar especie</Button>
+      </div>
+    </form>
+*/}
+{/* END: temporarily commenting duplicated species form pasted under bonuses */}
+{/* ...tu formulario aquí... */}
+  </Section>
+{/* moved: premature </TabsContent> for bonuses */}
+
 <form
   onSubmit={(e) => {
     e.preventDefault();
@@ -1384,6 +1550,17 @@ async function deleteSpecies(idToDelete: string) {
   }}
   className="space-y-3"
 >
+  {/* CONFIG → Estadísticas globales */}
+{/* MOVED: config tab (was nested under bonuses)
+<TabsContent value="config" className="mt-4 space-y-3">
+  <Section title="Estadísticas globales (para todos los personajes)">
+    <GlobalStatsEditor
+      initial={store.extraStats}
+      onSaved={async () => { await loadData(); }}
+    />
+  </Section>
+</TabsContent>
+END MOVED */}
   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
     <Field label="Nombre"><Input name="nombre_multi" defaultValue={editingBonus?.objetivos?.length ? editingBonus?.nombre ?? "" : ""} /></Field>
     <Field label="Nivel Máx"><Input name="nivelMax_multi" type="number" min={1} defaultValue={editingBonus?.objetivos?.length ? (editingBonus?.nivelMax ?? 5) : 5} /></Field>
@@ -1532,6 +1709,15 @@ async function deleteSpecies(idToDelete: string) {
           </Section>
         </TabsContent>
       
+        <TabsContent value="config" className="mt-4 space-y-3">
+          <Section title="Estadísticas globales (para todos los personajes)">
+            <GlobalStatsEditor
+              initial={store.extraStats}
+              onSaved={async () => { await loadData(); }}
+            />
+          </Section>
+        </TabsContent>
+
       <CharacterSheetModal
         open={sheetOpen}
         onClose={()=>{ setSheetOpen(false); setSheetCharId(null); }}
