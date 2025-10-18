@@ -102,6 +102,28 @@ function uid(prefix = "id"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
+function getSpeciesByName(speciesArr: Species[], name?: string | null) {
+  if (!name) return null;
+  return (
+    speciesArr.find(
+      (s) => s.nombre.trim().toLowerCase() === name.trim().toLowerCase()
+    ) ?? null
+  );
+}
+
+function convertStatValue(
+  statKey: string,
+  valor: number,
+  sp?: Species | null
+): { cantidad: number; unidad: string } | null {
+  if (!sp) return null;
+  const eq = sp.equivalencias?.[statKey];
+  if (!eq || !eq.unidad) return null;
+  const cantidad = (valor ?? 0) * (eq.valorPorPunto ?? 0);
+  return { cantidad, unidad: eq.unidad };
+}
+
+
 function downloadJSON(filename: string, data: unknown) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
   const a = document.createElement("a");
@@ -637,8 +659,25 @@ function CharacterForm({ initial, onSubmit, skills, bonuses, extraStats }: { ini
   );
 }
 
-function CharacterRow({ c, onEdit, onDelete, skillsById, bonuses }: { c: Character; onEdit: () => void; onDelete: () => void; skillsById: Record<string, Skill>; bonuses: Bonus[] }) {
+function CharacterRow({ c, onEdit, onDelete, skillsById, bonuses, speciesArr }: {
+c: Character;
+onEdit: () => void;
+onDelete: () => void;
+skillsById: Record<string, Skill>;
+bonuses: Bonus[];
+speciesArr: Species[];
+}) {
   const entries = Object.entries(c.stats).slice(0,3);
+  // especie actual del personaje
+  const sp = getSpeciesByName(speciesArr, c.especie);
+  // valores base
+    const vInt = c.stats?.["Inteligencia"]?.valor ?? 0;
+    const vFue = c.stats?.["Fuerza"]?.valor ?? 0;
+    const vVel = c.stats?.["Velocidad"]?.valor ?? 0;
+     // equivalencias (si existen)
+     const eqInt = convertStatValue("Inteligencia", vInt, sp); // p.ej. chakra
+     const eqFue = convertStatValue("Fuerza", vFue, sp);       // p.ej. kg
+     const eqVel = convertStatValue("Velocidad", vVel, sp);    // p.ej. m/s
   return (
     <div className="grid grid-cols-12 items-center gap-2 py-2 border-b">
       <div className="col-span-12 sm:col-span-4">
@@ -647,9 +686,21 @@ function CharacterRow({ c, onEdit, onDelete, skillsById, bonuses }: { c: Charact
       </div>
       <div className="col-span-12 sm:col-span-4 text-xs">
         <div className="flex flex-wrap gap-1">
-          {c.habilidades.slice(0, 4).map(h => (<Badge key={h.skillId} className="rounded-2xl truncate max-w-[160px]" title={skillsById[h.skillId]?.nombre ?? "?"}>{skillsById[h.skillId]?.nombre ?? "?"} ({h.nivel})</Badge>))}
+            {c.habilidades.slice(0, 4).map(h => (
+              <Badge key={h.skillId} className="rounded-2xl truncate max-w-[160px]" title={skillsById[h.skillId]?.nombre ?? "?"}>
+              {skillsById[h.skillId]?.nombre ?? "?"} ({h.nivel})
+              </Badge>
+         ))}
           {c.habilidades.length > 4 && <Badge className="rounded-2xl">+{c.habilidades.length - 4}</Badge>}
         </div>
+        {/* Chips con equivalencias principales */}
+     <div className="col-span-12 sm:col-span-5 text-xs">
+       <div className="mt-1 flex flex-wrap gap-1">
+        {eqInt && <Badge className="rounded-2xl">INT ≈ {Math.round(eqInt.cantidad)} {eqInt.unidad}</Badge>}
+        {eqFue && <Badge className="rounded-2xl">FUE ≈ {Math.round(eqFue.cantidad)} {eqFue.unidad}</Badge>}
+          {eqVel && <Badge className="rounded-2xl">VEL ≈ {Number(eqVel.cantidad.toFixed(2))} {eqVel.unidad}</Badge>}
+       </div>
+     </div>
       </div>
       <div className="col-span-12 sm:col-span-3 text-xs">
         <div className="flex flex-wrap gap-1">
@@ -983,7 +1034,7 @@ export default function MiniApp() {
                 <div className="divide-y">
                   {filteredChars.length === 0 && <div className="text-sm opacity-70">No hay personajes aún.</div>}
                   {filteredChars.map((c) => (
-                    <CharacterRow key={c.id} c={c} skillsById={skillsById} bonuses={store.bonuses} onEdit={() => setEditingCharId(c.id)} onDelete={() => deleteCharacter(c.id)} />
+                    <CharacterRow key={c.id} c={c} skillsById={skillsById} bonuses={store.bonuses} onEdit={() => setEditingCharId(c.id)} onDelete={() => deleteCharacter(c.id)} speciesArr={store.species}/>
                   ))}
                 </div>
               </Section>
