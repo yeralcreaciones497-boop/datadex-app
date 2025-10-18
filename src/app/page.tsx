@@ -895,7 +895,7 @@ export default function MiniApp() {
                   const b1: Bonus = { id: uid("bonus"), nombre: "Entrenamiento Fuerza", descripcion: "+5 puntos de Fuerza por nivel", objetivo: "Fuerza", modo: "Puntos", cantidadPorNivel: 5, nivelMax: 10 };
                   const b2: Bonus = { id: uid("bonus"), nombre: "Bendición Vital", descripcion: "+2% Vitalidad por nivel", objetivo: "Vitalidad", modo: "Porcentaje", cantidadPorNivel: 2, nivelMax: 20 };
                   const ch1: Character = { id: uid("char"), nombre: "Naruto", especie: "Dragón-Uzumaki", descripcion: "Líder de Uzushiogakure.", nivel: 1, stats: { Fuerza:{ valor:100, rango: classifyStat(100).sub }, Resistencia:{ valor:100, rango: classifyStat(100).sub }, Destreza:{ valor:100, rango: classifyStat(100).sub }, Mente:{ valor:150, rango: classifyStat(150).sub }, Vitalidad:{ valor:100, rango: classifyStat(100).sub } }, habilidades: [], bonos: [] };
-                  setStore({ skills: [sk1, sk2, sk3], characters: [ch1], evoLinks: [{ from: sk1.id, to: sk3.id }], bonuses: [b1,b2], extraStats: [] });
+                  setStore({ skills: [sk1, sk2, sk3], characters: [ch1], evoLinks: [{ from: sk1.id, to: sk3.id }], bonuses: [b1,b2], extraStats: [] , species: [] });
                 }} className="gap-2"><Wand2 className="w-4 h-4"/>Demo</Button>
               </div>
             </div>
