@@ -31,7 +31,7 @@ const DEFAULT_STATS = ["Fuerza","Resistencia","Destreza","Mente","Vitalidad","In
 type StatKey = typeof DEFAULT_STATS[number] | string;
 
 type Equivalencia = { unidad: string; valorPorPunto: number };
-type SpeciesBaseMod = { stat: StatKey; modo: "Puntos" | "Porcentaje"; cantidad: number };
+type SpeciesBaseMod = { stat: StatKey; modo: "Puntos" | "Porcentaje"; cantidad: number; cadaN?: number; };
 
 type Species = {
   id: string;
@@ -220,16 +220,20 @@ function applySpeciesModsMulti(
 
     for (const m of sp.baseMods) {
       if (m.stat !== key) continue;
-      const perLevel = Math.max(1, nivel ?? 1);
+
+      const lvl = Math.max(1, nivel ?? 1);
+      const step = Math.max(1, m.cadaN ?? 1);
+      const ticks = Math.floor(lvl / step);
+      if (ticks <= 0) continue;
+
       if (m.modo === "Puntos") {
-        flat += (m.cantidad ?? 0) * perLevel;
+        flat += (m.cantidad ?? 0) * ticks;
       } else if (m.modo === "Porcentaje") {
-        perc += (m.cantidad ?? 0) / 100;
+        perc += ((m.cantidad ?? 0) / 100);
       }
     }
   }
-
-  return base * (1 + perc) + flat;
+  return Math.round((base * (1 + perc) + flat) * 100) / 100;
 }
 
 /** Valor efectivo = base → especies (multi) → bonos (multi-objetivo o legacy). */
@@ -1493,8 +1497,7 @@ const speciesStatOptions = React.useMemo<string[]>(
     </Button>
   )}
 >
-  {/* contenido aquí si luego lo agregas */}
-  <></>  {/* 👈 Esto satisface a TypeScript */}
+  <></>
 </Section>
 
     {/* NUEVO: Formulario Multi-objetivo (hasta 5 consecuencias) */}
