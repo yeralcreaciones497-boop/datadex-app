@@ -1418,20 +1418,27 @@ async function deleteSpecies(idToDelete: string) {
   const editingSpec   = store.species.find(s => s.id === editingSpeciesId);
 
   // === AÑADIDO: opciones de estadísticas para SpeciesForm (agrupadas y ordenadas) ===
-  const speciesBaseStats = React.useMemo(() => {
-    const arr = [...(DEFAULT_STATS as any[])].map(String);
-    arr.sort((a,b)=>a.localeCompare(b));
-    return arr;
-  }, []);
-  const speciesExtraStats = React.useMemo(() => {
-    const extras = (store.extraStats ?? []).map(String)
-      .filter(s => !speciesBaseStats.includes(s));
-    extras.sort((a,b)=>a.localeCompare(b));
-    return extras;
-  }, [store.extraStats, speciesBaseStats]);
-  const speciesStatOptions = React.useMemo(() => {
-    return [...speciesBaseStats, ...speciesExtraStats];
-  }, [speciesBaseStats, speciesExtraStats]);
+  const speciesBaseStats = React.useMemo<string[]>(() => {
+  // DEFAULT_STATS es readonly; sacamos una copia mutable
+  const base = Array.from(DEFAULT_STATS as readonly string[]) as string[];
+  // normalizamos a string por si hay literales/tuplas
+  for (let i = 0; i < base.length; i++) base[i] = String(base[i]);
+  // ahora SÍ podemos ordenar
+  base.sort((a, b) => a.localeCompare(b));
+  return base;
+}, []);
+
+  const speciesExtraStats = React.useMemo<string[]>(() => {
+  const extras = (store.extraStats ?? []).map(String)
+    .filter(s => !speciesBaseStats.includes(s));
+  extras.sort((a, b) => a.localeCompare(b));
+  return extras;
+}, [store.extraStats, speciesBaseStats]);
+
+const speciesStatOptions = React.useMemo<string[]>(
+  () => [...speciesBaseStats, ...speciesExtraStats],
+  [speciesBaseStats, speciesExtraStats]
+);
 
   return (
     <div className="max-w-7xl mx-auto p-3 md:p-6 space-y-4">
