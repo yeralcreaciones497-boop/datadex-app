@@ -28,7 +28,12 @@ const DEFAULT_STATS = ["Fuerza","Resistencia","Destreza","Mente","Vitalidad","In
 type StatKey = typeof DEFAULT_STATS[number] | string;
 
 type Equivalencia = { unidad: string; valorPorPunto: number };
-type SpeciesBaseMod = { stat: StatKey; modo: "Puntos" | "Porcentaje"; cantidad: number };
+type SpeciesBaseMod = {
+  stat: StatKey;
+  modo: "Puntos" | "Porcentaje";
+  cantidad: number;
+  cadaN?: number;
+};
 
 type Species = {
   id: string;
@@ -201,8 +206,8 @@ function sumBonusesForStat(
 function applySpeciesModsMulti(
   base: number,
   key: StatKey,
-  species: Species[],                // catálogo completo
-  speciesIds: string[] | undefined,  // ids seleccionadas en el personaje
+  species: Species[],
+  speciesIds: string[] | undefined,
   nivel: number
 ) {
   if (!speciesIds?.length) return base;
@@ -217,17 +222,23 @@ function applySpeciesModsMulti(
 
     for (const m of sp.baseMods) {
       if (m.stat !== key) continue;
-      const perLevel = Math.max(1, nivel ?? 1);
+
+      const lvl = Math.max(1, nivel ?? 1);
+      const step = Math.max(1, m.cadaN ?? 1);
+      const ticks = Math.floor(lvl / step);
+      if (ticks <= 0) continue;
+
       if (m.modo === "Puntos") {
-        flat += (m.cantidad ?? 0) * perLevel;
+        flat += (m.cantidad ?? 0) * ticks;
       } else if (m.modo === "Porcentaje") {
-        perc += (m.cantidad ?? 0) / 100;
+        perc += ((m.cantidad ?? 0) / 100);
       }
     }
   }
-
-  return base * (1 + perc) + flat;
+  return Math.round((base * (1 + perc) + flat) * 100) / 100;
 }
+
+
 
 /** Valor efectivo = base → especies (multi) → bonos (multi-objetivo o legacy). */
 function calcEffectiveStat(c: Character, key: StatKey, bonuses: Bonus[], species: Species[]) {
@@ -555,7 +566,7 @@ function SpeciesForm({ initial, onSubmit, statOptions }: { initial?: Species; on
   const [mods, setMods] = useState<SpeciesBaseMod[]>(initial?.baseMods ?? []);
   const [equivText, setEquivText] = useState<string>(JSON.stringify(initial?.equivalencias ?? {}, null, 2));
 
-  function addMod() { setMods(prev => [...prev, { stat: statOptions[0] ?? "Fuerza", modo: "Puntos", cantidad: 1 }]); }
+  function addMod() { setMods(prev => [...prev, { stat: "Fuerza" as StatKey, modo: "Puntos", cantidad: 1, cadaN: 1 }]); }
   function updateMod(i: number, patch: Partial<SpeciesBaseMod>) { setMods(prev => prev.map((m, idx) => idx === i ? { ...m, ...patch } : m)); }
   function removeMod(i: number) { setMods(prev => prev.filter((_, idx) => idx !== i)); }
 
@@ -586,33 +597,61 @@ function SpeciesForm({ initial, onSubmit, statOptions }: { initial?: Species; on
         <div className="space-y-2">
           {mods.map((m, i) => (
             <div key={i} className="grid grid-cols-12 gap-2 items-end">
-              <div className="col-span-4">
-                <Label>Stat</Label>
-                <Select value={String(m.stat)} onValueChange={(v)=>updateMod(i, { stat: v })}>
-                  <SelectTrigger><SelectValue/></SelectTrigger>
-                  <SelectContent className="max-h-60 overflow-auto">
-                    {statOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="col-span-3">
-                <Label>Modo</Label>
-                <Select value={m.modo} onValueChange={(v)=>updateMod(i, { modo: v as any })}>
-                  <SelectTrigger><SelectValue/></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Puntos">Puntos</SelectItem>
-                    <SelectItem value="Porcentaje">Porcentaje</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="col-span-3">
-                <Label>Cantidad</Label>
-                <Input inputMode="numeric" type="number" value={m.cantidad} onChange={(e)=>updateMod(i, { cantidad: parseFloat(e.target.value || "0") })}/>
-              </div>
-              <div className="col-span-2">
-                <Button type="button" variant="destructive" onClick={()=>removeMod(i)} className="w-full"><Trash2 className="w-4 h-4"/></Button>
-              </div>
-            </div>
+  <div className="col-span-4">
+    <Label>Stat</Label>
+    <Select value={String(m.stat)} onValueChange={(v)=>updateMod(i, { stat: v })}>
+      <SelectTrigger><SelectValue/></SelectTrigger>
+      <SelectContent className="max-h-60 overflow-auto">
+        {statOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+      </SelectContent>
+    </Select>
+  </div>
+
+  <div className="col-span-2">
+    <Label>Modo</Label>
+    <Select value={m.modo} onValueChange={(v)=>updateMod(i, { modo: v as any })}>
+      <SelectTrigger><SelectValue/></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="Puntos">Puntos</SelectItem>
+        <SelectItem value="Porcentaje">Porcentaje</SelectItem>
+      </SelectContent>
+    </Select>
+  </div>
+
+  <div className="col-span-2">
+    <Label>Cantidad</Label>
+    <Input
+      inputMode="numeric"
+      type="number"
+      value={m.cantidad}
+      onChange={(e)=>updateMod(i, { cantidad: parseFloat(e.target.value || "0") })}
+    />
+    </div>
+
+  <div className="col-span-2">
+    <Label>Cada N niveles</Label>
+    <Input
+      type="number"
+      min={1}
+      value={m.cadaN ?? 1}
+      onChange={(e)=>updateMod(i, { cadaN: Math.max(1, Number(e.target.value) || 1) })}
+      disabled={m.modo === "Porcentaje"}        
+      title={m.modo === "Porcentaje" ? "No aplica en porcentaje fijo" : ""}
+    />
+  </div>
+
+  <div className="col-span-2">
+    <Button
+      type="button"
+      variant="destructive"
+      onClick={()=>removeMod(i)}
+      className="w-full"
+    >
+          <Trash2 className="w-4 h-4"/>
+        </Button>
+      </div>
+    </div>
+
           ))}
           <Button type="button" variant="outline" onClick={addMod} className="gap-2"><Plus className="w-4 h-4"/>Añadir modificador</Button>
         </div>
