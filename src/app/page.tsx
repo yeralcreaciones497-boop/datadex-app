@@ -562,9 +562,7 @@ function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOpti
   const [mods, setMods] = useState<SpeciesBaseMod[]>(initial?.baseMods ?? []);
   const [equivText, setEquivText] = useState<string>(JSON.stringify(initial?.equivalencias ?? {}, null, 2));
 
-  function addMod() {
-  setMods(prev => [...prev, { stat: statOptions[0] ?? "Fuerza", modo: "Puntos", cantidad: 1, cadaN: 1 }]);
-}
+  function addMod() { setMods(prev => [...prev, { stat: statOptions[0] ?? "Fuerza", modo: "Puntos", cantidad: 1 }]); }
   function updateMod(i: number, patch: Partial<SpeciesBaseMod>) { setMods(prev => prev.map((m, idx) => idx === i ? { ...m, ...patch } : m)); }
   function removeMod(i: number) { setMods(prev => prev.filter((_, idx) => idx !== i)); }
 
@@ -594,93 +592,54 @@ function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOpti
       <Section title="Modificadores base por especie">
         <div className="space-y-2">
           {mods.map((m, i) => (
-  <div key={i} className="grid grid-cols-12 gap-2 items-end">
-    {/* Stat */}
-    <div className="col-span-4">
-      <Label>Stat</Label>
-      <Select value={String(m.stat)} onValueChange={(v) => updateMod(i, { stat: v })}>
-        <SelectTrigger><SelectValue /></SelectTrigger>
-        <SelectContent className="max-h-60 overflow-auto">
-          {Boolean(statOptionsBase?.length) && (
-            <SelectGroup>
-              <SelectLabel>Estadísticas base</SelectLabel>
-              {(statOptionsBase ?? []).map((s) => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
-              ))}
-            </SelectGroup>
-          )}
-          {Boolean(statOptionsExtra?.length) && (
-            <SelectGroup>
-              <SelectLabel>Estadísticas personalizadas</SelectLabel>
-              {(statOptionsExtra ?? []).map((s) => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
-              ))}
-            </SelectGroup>
-          )}
-        </SelectContent>
-      </Select>
-    </div>
-
-    {/* Modo */}
-    <div className="col-span-3">
-      <Label>Modo</Label>
-      <Select value={m.modo} onValueChange={(v) => updateMod(i, { modo: v as any })}>
-        <SelectTrigger><SelectValue /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="Puntos">Puntos</SelectItem>
-          <SelectItem value="Porcentaje">Porcentaje</SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
-
-    {/* Cantidad */}
-    <div className="col-span-2">
-      <Label>Cantidad</Label>
-      <Input
-        inputMode="numeric"
-        type="number"
-        value={m.cantidad}
-        onChange={(e) => updateMod(i, { cantidad: parseFloat(e.target.value || "0") })}
-      />
-    </div>
-
-    {/* Cada N niveles SOLO cuando es modo Puntos */}
-    {m.modo === "Puntos" ? (
-      <div className="col-span-2">
-        <Label>Cada N niveles</Label>
-        <Input
-          inputMode="numeric"
-          type="number"
-          min={1}
-          value={m.cadaN ?? 1}
-          onChange={(e) =>
-            updateMod(i, { cadaN: Math.max(1, parseInt(e.target.value || "1")) })
-          }
-        />
-        <div className="text-[11px] opacity-70 mt-1">
-          +{m.cantidad ?? 0} cada {m.cadaN ?? 1} niveles
-        </div>
-      </div>
-    ) : (
-      <div className="col-span-2 text-[12px] opacity-70">
-        Porcentaje fijo de especie
-      </div>
-    )}
-
-    {/* Botón eliminar */}
-    <div className="col-span-1">
-      <Button
-        type="button"
-        variant="destructive"
-        onClick={() => removeMod(i)}
-        className="w-full"
-      >
-        <Trash2 className="w-4 h-4" />
-      </Button>
-    </div>
-  </div>
-))}
-
+            <div key={i} className="grid grid-cols-12 gap-2 items-end">
+              <div className="col-span-4">
+                <Label>Stat</Label>
+                <Select value={String(m.stat)} onValueChange={(v)=>updateMod(i, { stat: v })}>
+                  <SelectTrigger><SelectValue/></SelectTrigger>
+                  <SelectContent className="max-h-60 overflow-auto">
+  {Boolean(statOptionsBase?.length) && (
+    <SelectGroup>
+      <SelectLabel>Estadísticas base</SelectLabel>
+      {(statOptionsBase ?? []).map((s) => (
+        <SelectItem key={`base-${s}`} value={s}>
+          {s}
+        </SelectItem>
+      ))}
+    </SelectGroup>
+  )}
+  {Boolean(statOptionsExtra?.length) && (
+    <SelectGroup>
+      <SelectLabel>Estadísticas personalizadas</SelectLabel>
+      {(statOptionsExtra ?? []).map((s) => (
+        <SelectItem key={`extra-${s}`} value={s}>
+          {s}
+        </SelectItem>
+      ))}
+    </SelectGroup>
+  )}
+</SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-3">
+                <Label>Modo</Label>
+                <Select value={m.modo} onValueChange={(v)=>updateMod(i, { modo: v as any })}>
+                  <SelectTrigger><SelectValue/></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Puntos">Puntos</SelectItem>
+                    <SelectItem value="Porcentaje">Porcentaje</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-3">
+                <Label>Cantidad</Label>
+                <Input inputMode="numeric" type="number" value={m.cantidad} onChange={(e)=>updateMod(i, { cantidad: parseFloat(e.target.value || "0") })}/>
+              </div>
+              <div className="col-span-2">
+                <Button type="button" variant="destructive" onClick={()=>removeMod(i)} className="w-full"><Trash2 className="w-4 h-4"/></Button>
+              </div>
+            </div>
+          ))}
           <Button type="button" variant="outline" onClick={addMod} disabled={!statOptions.length} className="gap-2"><Plus className="w-4 h-4"/>Añadir modificador</Button>
         </div>
       </Section>
