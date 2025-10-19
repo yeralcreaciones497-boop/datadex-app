@@ -28,12 +28,7 @@ const DEFAULT_STATS = ["Fuerza","Resistencia","Destreza","Mente","Vitalidad","In
 type StatKey = typeof DEFAULT_STATS[number] | string;
 
 type Equivalencia = { unidad: string; valorPorPunto: number };
-type SpeciesBaseMod = {
-  stat: StatKey;
-  modo: "Puntos" | "Porcentaje";
-  cantidad: number;
-  cadaN?: number;
-};
+type SpeciesBaseMod = { stat: StatKey; modo: "Puntos" | "Porcentaje"; cantidad: number };
 
 type Species = {
   id: string;
@@ -206,8 +201,8 @@ function sumBonusesForStat(
 function applySpeciesModsMulti(
   base: number,
   key: StatKey,
-  species: Species[],
-  speciesIds: string[] | undefined,
+  species: Species[],                // catálogo completo
+  speciesIds: string[] | undefined,  // ids seleccionadas en el personaje
   nivel: number
 ) {
   if (!speciesIds?.length) return base;
@@ -222,23 +217,17 @@ function applySpeciesModsMulti(
 
     for (const m of sp.baseMods) {
       if (m.stat !== key) continue;
-
-      const lvl = Math.max(1, nivel ?? 1);
-      const step = Math.max(1, m.cadaN ?? 1);
-      const ticks = Math.floor(lvl / step);
-      if (ticks <= 0) continue;
-
+      const perLevel = Math.max(1, nivel ?? 1);
       if (m.modo === "Puntos") {
-        flat += (m.cantidad ?? 0) * ticks;
+        flat += (m.cantidad ?? 0) * perLevel;
       } else if (m.modo === "Porcentaje") {
-        perc += ((m.cantidad ?? 0) / 100);
+        perc += (m.cantidad ?? 0) / 100;
       }
     }
   }
-  return Math.round((base * (1 + perc) + flat) * 100) / 100;
+
+  return base * (1 + perc) + flat;
 }
-
-
 
 /** Valor efectivo = base → especies (multi) → bonos (multi-objetivo o legacy). */
 function calcEffectiveStat(c: Character, key: StatKey, bonuses: Bonus[], species: Species[]) {
@@ -559,14 +548,14 @@ function Pill({ children }: { children: React.ReactNode }) {
 }
 
 /* ================= Species Form ================= */
-function SpeciesForm({ initial, onSubmit, statOptions }: { initial?: Species; onSubmit: (s: Species) => void; statOptions: string[] }) {
+function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOptionsExtra }: { initial?: Species; onSubmit: (s: Species) => void; statOptions: string[]; statOptionsBase?: string[]; statOptionsExtra?: string[] }) {
   const [nombre, setNombre] = useState(initial?.nombre ?? "");
   const [descripcion, setDescripcion] = useState(initial?.descripcion ?? "");
   const [allowMind, setAllowMind] = useState<boolean>(initial?.allowMind ?? true);
   const [mods, setMods] = useState<SpeciesBaseMod[]>(initial?.baseMods ?? []);
   const [equivText, setEquivText] = useState<string>(JSON.stringify(initial?.equivalencias ?? {}, null, 2));
 
-  function addMod() { setMods(prev => [...prev, { stat: "Fuerza" as StatKey, modo: "Puntos", cantidad: 1, cadaN: 1 }]); }
+  function addMod() { setMods(prev => [...prev, { stat: statOptions[0] ?? "Fuerza", modo: "Puntos", cantidad: 1 }]); }
   function updateMod(i: number, patch: Partial<SpeciesBaseMod>) { setMods(prev => prev.map((m, idx) => idx === i ? { ...m, ...patch } : m)); }
   function removeMod(i: number) { setMods(prev => prev.filter((_, idx) => idx !== i)); }
 
@@ -597,63 +586,45 @@ function SpeciesForm({ initial, onSubmit, statOptions }: { initial?: Species; on
         <div className="space-y-2">
           {mods.map((m, i) => (
             <div key={i} className="grid grid-cols-12 gap-2 items-end">
-  <div className="col-span-4">
-    <Label>Stat</Label>
-    <Select value={String(m.stat)} onValueChange={(v)=>updateMod(i, { stat: v })}>
-      <SelectTrigger><SelectValue/></SelectTrigger>
-      <SelectContent className="max-h-60 overflow-auto">
-        {statOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-      </SelectContent>
-    </Select>
-  </div>
-
-  <div className="col-span-2">
-    <Label>Modo</Label>
-    <Select value={m.modo} onValueChange={(v)=>updateMod(i, { modo: v as any })}>
-      <SelectTrigger><SelectValue/></SelectTrigger>
-      <SelectContent>
-        <SelectItem value="Puntos">Puntos</SelectItem>
-        <SelectItem value="Porcentaje">Porcentaje</SelectItem>
-      </SelectContent>
-    </Select>
-  </div>
-
-  <div className="col-span-2">
-    <Label>Cantidad</Label>
-    <Input
-      inputMode="numeric"
-      type="number"
-      value={m.cantidad}
-      onChange={(e)=>updateMod(i, { cantidad: parseFloat(e.target.value || "0") })}
-    />
-    </div>
-
-  <div className="col-span-2">
-    <Label>Cada N niveles</Label>
-    <Input
-      type="number"
-      min={1}
-      value={m.cadaN ?? 1}
-      onChange={(e)=>updateMod(i, { cadaN: Math.max(1, Number(e.target.value) || 1) })}
-      disabled={m.modo === "Porcentaje"}        
-      title={m.modo === "Porcentaje" ? "No aplica en porcentaje fijo" : ""}
-    />
-  </div>
-
-  <div className="col-span-2">
-    <Button
-      type="button"
-      variant="destructive"
-      onClick={()=>removeMod(i)}
-      className="w-full"
-    >
-          <Trash2 className="w-4 h-4"/>
-        </Button>
-      </div>
-    </div>
-
+              <div className="col-span-4">
+                <Label>Stat</Label>
+                <Select value={String(m.stat)} onValueChange={(v)=>updateMod(i, { stat: v })}>
+                  <SelectTrigger><SelectValue/></SelectTrigger>
+                  <SelectContent className="max-h-60 overflow-auto">
+                    {/* ORIGINAL MAPEADO PLANO:
+                    {statOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  */}
+                  {(statOptionsBase?.length ? <div className="px-2 py-1 text-[11px] opacity-60">— Estadísticas base —</div> : null)}
+                  {(statOptionsBase ?? []).map(s => (
+                    <SelectItem key={`base-${s}`} value={s}>{s}</SelectItem>
+                  ))}
+                  {(statOptionsExtra?.length ? <div className="px-2 py-1 text-[11px] opacity-60">— Estadísticas personalizadas —</div> : null)}
+                  {(statOptionsExtra ?? []).map(s => (
+                    <SelectItem key={`extra-${s}`} value={s}>{s}</SelectItem>
+                  ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-3">
+                <Label>Modo</Label>
+                <Select value={m.modo} onValueChange={(v)=>updateMod(i, { modo: v as any })}>
+                  <SelectTrigger><SelectValue/></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Puntos">Puntos</SelectItem>
+                    <SelectItem value="Porcentaje">Porcentaje</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-3">
+                <Label>Cantidad</Label>
+                <Input inputMode="numeric" type="number" value={m.cantidad} onChange={(e)=>updateMod(i, { cantidad: parseFloat(e.target.value || "0") })}/>
+              </div>
+              <div className="col-span-2">
+                <Button type="button" variant="destructive" onClick={()=>removeMod(i)} className="w-full"><Trash2 className="w-4 h-4"/></Button>
+              </div>
+            </div>
           ))}
-          <Button type="button" variant="outline" onClick={addMod} className="gap-2"><Plus className="w-4 h-4"/>Añadir modificador</Button>
+          <Button type="button" variant="outline" onClick={addMod} disabled={!statOptions.length} className="gap-2"><Plus className="w-4 h-4"/>Añadir modificador</Button>
         </div>
       </Section>
 
@@ -1434,6 +1405,22 @@ async function deleteSpecies(idToDelete: string) {
   const editingSkill  = store.skills.find(s => s.id === editingSkillId);
   const editingSpec   = store.species.find(s => s.id === editingSpeciesId);
 
+  // === AÑADIDO: opciones de estadísticas para SpeciesForm (agrupadas y ordenadas) ===
+  const speciesBaseStats = React.useMemo(() => {
+    const arr = [...(DEFAULT_STATS as any[])].map(String);
+    arr.sort((a,b)=>a.localeCompare(b));
+    return arr;
+  }, []);
+  const speciesExtraStats = React.useMemo(() => {
+    const extras = (store.extraStats ?? []).map(String)
+      .filter(s => !speciesBaseStats.includes(s));
+    extras.sort((a,b)=>a.localeCompare(b));
+    return extras;
+  }, [store.extraStats, speciesBaseStats]);
+  const speciesStatOptions = React.useMemo(() => {
+    return [...speciesBaseStats, ...speciesExtraStats];
+  }, [speciesBaseStats, speciesExtraStats]);
+
   return (
     <div className="max-w-7xl mx-auto p-3 md:p-6 space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -1485,7 +1472,79 @@ async function deleteSpecies(idToDelete: string) {
         <Button variant="outline" onClick={() => setEditingBonusId(null)}>Cancelar</Button>
       )}
     >
-      {null}
+    {/* NUEVO: Formulario Multi-objetivo (hasta 5 consecuencias) */}
+    {/* inserted form duplicate below */}
+{/* BEGIN: temporarily commenting duplicated species form pasted under bonuses */}
+{/*
+<form onSubmit={handleSubmit} className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <Field label="Nombre"><Input value={nombre} onChange={(e)=>setNombre(e.target.value)} placeholder="Ej: Dragón, Uzumaki, Humano"/></Field>
+        <Field label="Puede usar Mente">
+          <div className="flex items-center gap-2">
+            <Switch checked={allowMind} onCheckedChange={setAllowMind}/>
+            <span className="text-sm opacity-80">{allowMind ? "Sí" : "No"}</span>
+          </div>
+        </Field>
+      </div>
+      <Field label="Descripción"><Textarea value={descripcion} onChange={(e)=>setDescripcion(e.target.value)} className="min-h-[80px]"/></Field>
+
+      <Section title="Modificadores base por especie">
+        <div className="space-y-2">
+          {mods.map((m, i) => (
+            <div key={i} className="grid grid-cols-12 gap-2 items-end">
+              <div className="col-span-4">
+                <Label>Stat</Label>
+                <Select value={String(m.stat)} onValueChange={(v)=>updateMod(i, { stat: v })}>
+                  <SelectTrigger><SelectValue/></SelectTrigger>
+                  <SelectContent className="max-h-60 overflow-auto">
+                    {/* ORIGINAL MAPEADO PLANO:
+                    {statOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  */}
+                  {(statOptionsBase?.length ? <div className="px-2 py-1 text-[11px] opacity-60">— Estadísticas base —</div> : null)}
+                  {(statOptionsBase ?? []).map(s => (
+                    <SelectItem key={`base-${s}`} value={s}>{s}</SelectItem>
+                  ))}
+                  {(statOptionsExtra?.length ? <div className="px-2 py-1 text-[11px] opacity-60">— Estadísticas personalizadas —</div> : null)}
+                  {(statOptionsExtra ?? []).map(s => (
+                    <SelectItem key={`extra-${s}`} value={s}>{s}</SelectItem>
+                  ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-3">
+                <Label>Modo</Label>
+                <Select value={m.modo} onValueChange={(v)=>updateMod(i, { modo: v as any })}>
+                  <SelectTrigger><SelectValue/></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Puntos">Puntos</SelectItem>
+                    <SelectItem value="Porcentaje">Porcentaje</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-3">
+                <Label>Cantidad</Label>
+                <Input inputMode="numeric" type="number" value={m.cantidad} onChange={(e)=>updateMod(i, { cantidad: parseFloat(e.target.value || "0") })}/>
+              </div>
+              <div className="col-span-2">
+                <Button type="button" variant="destructive" onClick={()=>removeMod(i)} className="w-full"><Trash2 className="w-4 h-4"/></Button>
+              </div>
+            </div>
+          ))}
+          <Button type="button" variant="outline" onClick={addMod} className="gap-2"><Plus className="w-4 h-4"/>Añadir modificador</Button>
+        </div>
+      </Section>
+
+      <Field label="Equivalencias (JSON)">
+        <Textarea value={equivText} onChange={(e)=>setEquivText(e.target.value)} className="min-h-[140px]" />
+      </Field>
+
+      <div className="flex justify-end gap-2">
+        <Button type="submit" className="gap-2"><Save className="w-4 h-4"/>Guardar especie</Button>
+      </div>
+    </form>
+*/}
+{/* END: temporarily commenting duplicated species form pasted under bonuses */}
+{/* ...tu formulario aquí... */}
   </Section>
 {/* moved: premature </TabsContent> for bonuses */}
 
@@ -1527,6 +1586,17 @@ async function deleteSpecies(idToDelete: string) {
   }}
   className="space-y-3"
 >
+  {/* CONFIG → Estadísticas globales */}
+{/* MOVED: config tab (was nested under bonuses)
+<TabsContent value="config" className="mt-4 space-y-3">
+  <Section title="Estadísticas globales (para todos los personajes)">
+    <GlobalStatsEditor
+      initial={store.extraStats}
+      onSaved={async () => { await loadData(); }}
+    />
+  </Section>
+</TabsContent>
+END MOVED */}
   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
     <Field label="Nombre"><Input name="nombre_multi" defaultValue={editingBonus?.objetivos?.length ? editingBonus?.nombre ?? "" : ""} /></Field>
     <Field label="Nivel Máx"><Input name="nivelMax_multi" type="number" min={1} defaultValue={editingBonus?.objetivos?.length ? (editingBonus?.nivelMax ?? 5) : 5} /></Field>
@@ -1589,6 +1659,7 @@ async function deleteSpecies(idToDelete: string) {
               <Field label="Descripción"><Textarea name="descripcion" defaultValue={editingBonus?.descripcion ?? ""}/></Field>
               <div className="flex justify-end"><Button type="submit" className="gap-2"><Save className="w-4 h-4"/>Guardar bonificación</Button></div>
             </form>
+          </Section>
           <Section title={`Listado de bonificaciones (${store.bonuses.length})`}>
             <div className="divide-y">
               {store.bonuses.map(b => (
@@ -1647,7 +1718,7 @@ async function deleteSpecies(idToDelete: string) {
         {/* ESPECIES */}
         <TabsContent value="species" className="mt-4 space-y-3">
           <Section title={editingSpec ? "Editar especie" : "Nueva especie"} actions={editingSpec && <Button variant="outline" onClick={()=>setEditingSpeciesId(null)}>Cancelar</Button>}>
-            <SpeciesForm initial={editingSpec ?? undefined} onSubmit={(s)=>{ setEditingSpeciesId(null); upsertSpecies(s); }} statOptions={Array.from(new Set([...DEFAULT_STATS as any]))} />
+            <SpeciesForm initial={editingSpec ?? undefined} onSubmit={(s)=>{ setEditingSpeciesId(null); upsertSpecies(s); }} statOptions={speciesStatOptions} statOptionsBase={speciesBaseStats} statOptionsExtra={speciesExtraStats} />
           </Section>
           <Section title={`Listado de especies (${store.species.length})`}>
             <div className="divide-y">
