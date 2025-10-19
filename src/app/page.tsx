@@ -1486,11 +1486,17 @@ const speciesStatOptions = React.useMemo<string[]>(
         {/* BONIFICACIONES */}
   <TabsContent value="bonuses" className="mt-4 space-y-3">
     <Section
-      title={editingBonus ? "Editar bonificación" : "Nueva bonificación"}
-      actions={editingBonus && (
-        <Button variant="outline" onClick={() => setEditingBonusId(null)}>Cancelar</Button>
-      )}
-    >
+  title={editingBonus ? "Editar bonificación" : "Nueva bonificación"}
+  actions={editingBonus && (
+    <Button variant="outline" onClick={() => setEditingBonusId(null)}>
+      Cancelar
+    </Button>
+  )}
+>
+  {/* contenido aquí si luego lo agregas */}
+  <></>  {/* 👈 Esto satisface a TypeScript */}
+</Section>
+
     {/* NUEVO: Formulario Multi-objetivo (hasta 5 consecuencias) */}
     {/* inserted form duplicate below */}
 {/* BEGIN: temporarily commenting duplicated species form pasted under bonuses */}
@@ -1573,7 +1579,6 @@ const speciesStatOptions = React.useMemo<string[]>(
 */}
 {/* END: temporarily commenting duplicated species form pasted under bonuses */}
 {/* ...tu formulario aquí... */}
-  </Section>
 {/* moved: premature </TabsContent> for bonuses */}
 
 <form
