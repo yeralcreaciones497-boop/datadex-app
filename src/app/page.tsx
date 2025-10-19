@@ -575,6 +575,23 @@ function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOpti
     const out: Species = { id: initial?.id ?? uid("spec"), nombre: nombre.trim(), descripcion, allowMind, baseMods: mods, equivalencias };
     onSubmit(out);
   }
+  useEffect(() => {
+  // Cuando cambie "initial" (otra especie seleccionada), sincroniza el formulario
+  if (initial) {
+    setNombre(initial.nombre ?? "");
+    setDescripcion(initial.descripcion ?? "");
+    setAllowMind(initial.allowMind ?? true);
+    setMods(initial.baseMods ?? []);
+    setEquivText(JSON.stringify(initial.equivalencias ?? {}, null, 2));
+  } else {
+    // Si no hay especie seleccionada (modo "nueva especie"), resetea a valores por defecto
+    setNombre("");
+    setDescripcion("");
+    setAllowMind(true);
+    setMods([]);
+    setEquivText(JSON.stringify({}, null, 2));
+  }
+}, [initial]);
 
   return (
     <>
