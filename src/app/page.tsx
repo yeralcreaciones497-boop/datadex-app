@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } 
 import { Label } from "@/components/ui/label";
 import { Plus, Save, Trash2, Settings2, Minus, ChevronRight } from "lucide-react";
 
@@ -591,18 +591,27 @@ function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOpti
                 <Select value={String(m.stat)} onValueChange={(v)=>updateMod(i, { stat: v })}>
                   <SelectTrigger><SelectValue/></SelectTrigger>
                   <SelectContent className="max-h-60 overflow-auto">
-                    {/* ORIGINAL MAPEADO PLANO:
-                    {statOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                  */}
-                  {(statOptionsBase?.length ? <div className="px-2 py-1 text-[11px] opacity-60">— Estadísticas base —</div> : null)}
-                  {(statOptionsBase ?? []).map(s => (
-                    <SelectItem key={`base-${s}`} value={s}>{s}</SelectItem>
-                  ))}
-                  {(statOptionsExtra?.length ? <div className="px-2 py-1 text-[11px] opacity-60">— Estadísticas personalizadas —</div> : null)}
-                  {(statOptionsExtra ?? []).map(s => (
-                    <SelectItem key={`extra-${s}`} value={s}>{s}</SelectItem>
-                  ))}
-                  </SelectContent>
+  {Boolean(statOptionsBase?.length) && (
+    <SelectGroup>
+      <SelectLabel>Estadísticas base</SelectLabel>
+      {(statOptionsBase ?? []).map((s) => (
+        <SelectItem key={`base-${s}`} value={s}>
+          {s}
+        </SelectItem>
+      ))}
+    </SelectGroup>
+  )}
+  {Boolean(statOptionsExtra?.length) && (
+    <SelectGroup>
+      <SelectLabel>Estadísticas personalizadas</SelectLabel>
+      {(statOptionsExtra ?? []).map((s) => (
+        <SelectItem key={`extra-${s}`} value={s}>
+          {s}
+        </SelectItem>
+      ))}
+    </SelectGroup>
+  )}
+</SelectContent>
                 </Select>
               </div>
               <div className="col-span-3">
@@ -1497,18 +1506,27 @@ async function deleteSpecies(idToDelete: string) {
                 <Select value={String(m.stat)} onValueChange={(v)=>updateMod(i, { stat: v })}>
                   <SelectTrigger><SelectValue/></SelectTrigger>
                   <SelectContent className="max-h-60 overflow-auto">
-                    {/* ORIGINAL MAPEADO PLANO:
-                    {statOptions.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                  */}
-                  {(statOptionsBase?.length ? <div className="px-2 py-1 text-[11px] opacity-60">— Estadísticas base —</div> : null)}
-                  {(statOptionsBase ?? []).map(s => (
-                    <SelectItem key={`base-${s}`} value={s}>{s}</SelectItem>
-                  ))}
-                  {(statOptionsExtra?.length ? <div className="px-2 py-1 text-[11px] opacity-60">— Estadísticas personalizadas —</div> : null)}
-                  {(statOptionsExtra ?? []).map(s => (
-                    <SelectItem key={`extra-${s}`} value={s}>{s}</SelectItem>
-                  ))}
-                  </SelectContent>
+  {Boolean(statOptionsBase?.length) && (
+    <SelectGroup>
+      <SelectLabel>Estadísticas base</SelectLabel>
+      {(statOptionsBase ?? []).map((s) => (
+        <SelectItem key={`base-${s}`} value={s}>
+          {s}
+        </SelectItem>
+      ))}
+    </SelectGroup>
+  )}
+  {Boolean(statOptionsExtra?.length) && (
+    <SelectGroup>
+      <SelectLabel>Estadísticas personalizadas</SelectLabel>
+      {(statOptionsExtra ?? []).map((s) => (
+        <SelectItem key={`extra-${s}`} value={s}>
+          {s}
+        </SelectItem>
+      ))}
+    </SelectGroup>
+  )}
+</SelectContent>
                 </Select>
               </div>
               <div className="col-span-3">
