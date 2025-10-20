@@ -31,7 +31,7 @@ const DEFAULT_STATS = ["Fuerza","Resistencia","Destreza","Mente","Vitalidad","In
 type StatKey = typeof DEFAULT_STATS[number] | string;
 
 type Equivalencia = { unidad: string; valorPorPunto: number };
-type SpeciesBaseMod = { stat: StatKey; modo: "Puntos" | "Porcentaje"; cantidad: number; cadaN?: number; };
+type SpeciesBaseMod = { stat: StatKey; modo: "Puntos" | "Porcentaje"; cantidad: number; cadaN?: number; tipo?: "Ventaja" | "Desventaja"; };
 
 type Species = {
   id: string;
@@ -229,7 +229,9 @@ function applySpeciesModsMulti(
       if (m.modo === "Puntos") {
         flat += (m.cantidad ?? 0) * ticks;
       } else if (m.modo === "Porcentaje") {
-        perc += ((m.cantidad ?? 0) / 100);
+        const sign = (m.tipo === "Desventaja") ? -1 : 1;
+        const frac = Math.abs(m.cantidad ?? 0) / 100; // aseguramos magnitud
+        perc += sign * frac;
       }
     }
   }
@@ -563,7 +565,7 @@ function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOpti
   const [equivText, setEquivText] = useState<string>(JSON.stringify(initial?.equivalencias ?? {}, null, 2));
 
   function addMod() {
-  setMods(prev => [...prev, { stat: statOptions[0] ?? "Fuerza", modo: "Puntos", cantidad: 1, cadaN: 1 }]);
+  setMods(prev => [...prev, { stat: statOptions[0] ?? "Fuerza", modo: "Puntos", cantidad: 1, cadaN: 1, tipo: "Ventaja" }]);
 }
   function updateMod(i: number, patch: Partial<SpeciesBaseMod>) { setMods(prev => prev.map((m, idx) => idx === i ? { ...m, ...patch } : m)); }
   function removeMod(i: number) { setMods(prev => prev.filter((_, idx) => idx !== i)); }
@@ -581,10 +583,9 @@ function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOpti
     setNombre(initial.nombre ?? "");
     setDescripcion(initial.descripcion ?? "");
     setAllowMind(initial.allowMind ?? true);
-    setMods(initial.baseMods ?? []);
+    setMods((initial.baseMods ?? []).map(m => ({ ...m, tipo: m.tipo ?? "Ventaja" }))); 
     setEquivText(JSON.stringify(initial.equivalencias ?? {}, null, 2));
   } else {
-    // Si no hay especie seleccionada (modo "nueva especie"), resetea a valores por defecto
     setNombre("");
     setDescripcion("");
     setAllowMind(true);
@@ -612,90 +613,111 @@ function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOpti
         <div className="space-y-2">
           {mods.map((m, i) => (
   <div key={i} className="grid grid-cols-12 gap-2 items-end">
-    {/* Stat */}
-    <div className="col-span-4">
-      <Label>Stat</Label>
-      <Select value={String(m.stat)} onValueChange={(v) => updateMod(i, { stat: v })}>
-        <SelectTrigger><SelectValue /></SelectTrigger>
-        <SelectContent className="max-h-60 overflow-auto">
-          {Boolean(statOptionsBase?.length) && (
-            <SelectGroup>
-              <SelectLabel>Estadísticas base</SelectLabel>
-              {(statOptionsBase ?? []).map((s) => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
-              ))}
-            </SelectGroup>
-          )}
-          {Boolean(statOptionsExtra?.length) && (
-            <SelectGroup>
-              <SelectLabel>Estadísticas personalizadas</SelectLabel>
-              {(statOptionsExtra ?? []).map((s) => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
-              ))}
-            </SelectGroup>
-          )}
-        </SelectContent>
-      </Select>
-    </div>
+  {/* Stat */}
+  <div className="col-span-3">
+    <Label>Stat</Label>
+    <Select value={String(m.stat)} onValueChange={(v)=>updateMod(i, { stat: v })}>
+      <SelectTrigger><SelectValue/></SelectTrigger>
+      <SelectContent className="max-h-60 overflow-auto">
+        {Boolean(statOptionsBase?.length) && (
+          <SelectGroup>
+            <SelectLabel>Estadísticas base</SelectLabel>
+            {(statOptionsBase ?? []).map((s) => (
+              <SelectItem key={`base-${s}`} value={s}>{s}</SelectItem>
+            ))}
+          </SelectGroup>
+        )}
+        {Boolean(statOptionsExtra?.length) && (
+          <SelectGroup>
+            <SelectLabel>Estadísticas personalizadas</SelectLabel>
+            {(statOptionsExtra ?? []).map((s) => (
+              <SelectItem key={`extra-${s}`} value={s}>{s}</SelectItem>
+            ))}
+          </SelectGroup>
+        )}
+      </SelectContent>
+    </Select>
+  </div>
 
-    {/* Modo */}
-    <div className="col-span-3">
-      <Label>Modo</Label>
-      <Select value={m.modo} onValueChange={(v) => updateMod(i, { modo: v as any })}>
-        <SelectTrigger><SelectValue /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="Puntos">Puntos</SelectItem>
-          <SelectItem value="Porcentaje">Porcentaje</SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
-
-    {/* Cantidad */}
-    <div className="col-span-2">
-      <Label>Cantidad</Label>
-      <Input
-        inputMode="numeric"
-        type="number"
-        value={m.cantidad}
-        onChange={(e) => updateMod(i, { cantidad: parseFloat(e.target.value || "0") })}
-      />
-    </div>
-
-    {/* Cada N niveles SOLO cuando es modo Puntos */}
-    {m.modo === "Puntos" ? (
-      <div className="col-span-2">
-        <Label>Cada N niveles</Label>
-        <Input
-          inputMode="numeric"
-          type="number"
-          min={1}
-          value={m.cadaN ?? 1}
-          onChange={(e) =>
-            updateMod(i, { cadaN: Math.max(1, parseInt(e.target.value || "1")) })
-          }
-        />
-        <div className="text-[11px] opacity-70 mt-1">
-          +{m.cantidad ?? 0} cada {m.cadaN ?? 1} niveles
-        </div>
-      </div>
-    ) : (
-      <div className="col-span-2 text-[12px] opacity-70">
-        Porcentaje fijo de especie
-      </div>
-    )}
-
-    {/* Botón eliminar */}
-    <div className="col-span-1">
-      <Button
-        type="button"
-        variant="destructive"
-        onClick={() => removeMod(i)}
-        className="w-full"
-      >
-        <Trash2 className="w-4 h-4" />
-      </Button>
+  {/* Tipo (Ventaja / Desventaja) */}
+  <div className="col-span-3">
+    <Label>Tipo</Label>
+    <Select
+      value={m.tipo ?? "Ventaja"}
+      onValueChange={(v)=>{
+        // Si es desventaja, forzamos modo Porcentaje
+        const isDown = v === "Desventaja";
+        updateMod(i, { tipo: v as any, modo: isDown ? "Porcentaje" : (m.modo ?? "Puntos") });
+      }}
+    >
+      <SelectTrigger><SelectValue/></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="Ventaja">Ventaja</SelectItem>
+        <SelectItem value="Desventaja">Desventaja</SelectItem>
+      </SelectContent>
+    </Select>
+    <div className="text-[11px] opacity-70 mt-1">
+      {(m.tipo ?? "Ventaja") === "Desventaja"
+        ? "Solo porcentaje (se aplica como resta)."
+        : "Puedes usar puntos o porcentaje."}
     </div>
   </div>
+
+  {/* Modo (bloquea Puntos cuando sea Desventaja) */}
+  <div className="col-span-3">
+    <Label>Modo</Label>
+    <Select
+      value={m.modo}
+      onValueChange={(v)=>{
+        if ((m.tipo ?? "Ventaja") === "Desventaja") return; // bloqueado
+        updateMod(i, { modo: v as any });
+      }}
+    >
+      <SelectTrigger><SelectValue/></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="Puntos" disabled={(m.tipo ?? "Ventaja") === "Desventaja"}>Puntos</SelectItem>
+        <SelectItem value="Porcentaje">Porcentaje</SelectItem>
+      </SelectContent>
+    </Select>
+  </div>
+
+  {/* Cantidad (si es Desventaja, tratar como % positivo) */}
+  <div className="col-span-2">
+    <Label>{(m.tipo ?? "Ventaja") === "Desventaja" ? "Porcentaje (%)" : "Cantidad"}</Label>
+    <Input
+      inputMode="numeric"
+      type="number"
+      min={(m.tipo ?? "Ventaja") === "Desventaja" ? 0 : undefined}
+      value={m.cantidad}
+      onChange={(e)=>{
+        let v = parseFloat(e.target.value || "0");
+        if ((m.tipo ?? "Ventaja") === "Desventaja") v = Math.max(0, v); // guardar magnitud
+        updateMod(i, { cantidad: v });
+      }}
+    />
+  </div>
+
+  {/* Eliminar */}
+  <div className="col-span-1">
+    <Button type="button" variant="destructive" onClick={()=>removeMod(i)} className="w-full">
+      <Trash2 className="w-4 h-4"/>
+    </Button>
+  </div>
+
+  {/* Nota guía para "cadaN" (si decides mostrarlo después) */}
+  {(m.modo === "Puntos" && (m.tipo ?? "Ventaja") !== "Desventaja") ? (
+    <div className="col-span-12 text-[11px] opacity-70 -mt-1">
+      Puedes agregar “cadaN” si usas puntos por nivel (opcional).
+    </div>
+  ) : (
+    <div className="col-span-12 text-[11px] opacity-70 -mt-1">
+      {(m.tipo ?? "Ventaja") === "Desventaja"
+        ? "Desventaja porcentual fija de especie (resta)."
+        : "Porcentaje fijo de especie (suma)."}
+    </div>
+  )}
+</div>
+
 ))}
 
           <Button type="button" variant="outline" onClick={addMod} disabled={!statOptions.length} className="gap-2"><Plus className="w-4 h-4"/>Añadir modificador</Button>
