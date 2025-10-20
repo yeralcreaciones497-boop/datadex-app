@@ -706,10 +706,25 @@ function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOpti
 
   {/* Nota guía para "cadaN" (si decides mostrarlo después) */}
   {(m.modo === "Puntos" && (m.tipo ?? "Ventaja") !== "Desventaja") ? (
-    <div className="col-span-12 text-[11px] opacity-70 -mt-1">
-      Puedes agregar “cadaN” si usas puntos por nivel (opcional).
+  <div className="col-span-12 grid grid-cols-12 gap-2 -mt-1">
+    <div className="col-span-3">
+      <Label>Cada N niveles</Label>
+      <Input
+        inputMode="numeric"
+        type="number"
+        min={1}
+        value={m.cadaN ?? 1}
+        onChange={(e) => {
+          const n = Math.max(1, parseInt(e.target.value || "1"));
+          updateMod(i, { cadaN: n });
+        }}
+      />
+      <div className="text-[11px] opacity-70 mt-1">
+        +{m.cantidad ?? 0} puntos cada {m.cadaN ?? 1} niveles
+      </div>
     </div>
-  ) : (
+  </div>
+) : (
     <div className="col-span-12 text-[11px] opacity-70 -mt-1">
       {(m.tipo ?? "Ventaja") === "Desventaja"
         ? "Desventaja porcentual fija de especie (resta)."
