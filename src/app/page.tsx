@@ -577,7 +577,7 @@ function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOpti
     const out: Species = { id: initial?.id ?? uid("spec"), nombre: nombre.trim(), descripcion, allowMind, baseMods: mods, equivalencias };
     onSubmit(out);
   }
-  const RESET_ON_CLEAR = false;
+  const RESET_ON_CLEAR = true;
   useEffect(() => {
   // Cuando cambie "initial" (otra especie seleccionada), sincroniza el formulario
   if (initial) {
