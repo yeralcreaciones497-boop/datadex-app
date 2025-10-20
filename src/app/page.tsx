@@ -577,6 +577,7 @@ function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOpti
     const out: Species = { id: initial?.id ?? uid("spec"), nombre: nombre.trim(), descripcion, allowMind, baseMods: mods, equivalencias };
     onSubmit(out);
   }
+  const RESET_ON_CLEAR = false;
   useEffect(() => {
   // Cuando cambie "initial" (otra especie seleccionada), sincroniza el formulario
   if (initial) {
@@ -585,7 +586,7 @@ function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOpti
     setAllowMind(initial.allowMind ?? true);
     setMods((initial.baseMods ?? []).map(m => ({ ...m, tipo: m.tipo ?? "Ventaja" }))); 
     setEquivText(JSON.stringify(initial.equivalencias ?? {}, null, 2));
-  } else {
+  } else if (RESET_ON_CLEAR) {
     setNombre("");
     setDescripcion("");
     setAllowMind(true);
@@ -593,7 +594,6 @@ function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOpti
     setEquivText(JSON.stringify({}, null, 2));
   }
 }, [initial]);
-
   return (
     <>
     {/* STRAY FORM COMMENTED OUT (moved into bonuses tab) */}
