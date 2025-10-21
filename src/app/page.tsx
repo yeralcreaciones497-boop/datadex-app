@@ -720,7 +720,7 @@ function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOpti
 }
 
 
-  const RESET_ON_CLEAR = true;
+  const RESET_ON_CLEAR = false;
   useEffect(() => {
   // Cuando cambie "initial" (otra especie seleccionada), sincroniza el formulario
   if (initial) {
