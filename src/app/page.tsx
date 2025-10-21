@@ -1383,8 +1383,9 @@ const derived = React.useMemo(
   [effectiveMap, mergedEquivalencias]
 );
 
+
 // ======= Libro: paginación dinámica (1 categoría por página) =======
-const eqCats = React.useMemo(
+const eqCats: string[] = React.useMemo(
   () => Array.from(new Set((derived ?? []).map(d => d.categoria))),
   [derived]
 );
@@ -1407,6 +1408,10 @@ const goPrev = React.useCallback(() => {
 
 const goNext = React.useCallback(() => {
   setPage(p => Math.min(TOTAL_PAGES - 1, p + 1));
+}, [TOTAL_PAGES]);
+
+React.useEffect(() => {
+  setPage(p => Math.min(p, Math.max(0, TOTAL_PAGES - 1)));
 }, [TOTAL_PAGES]);
 
 React.useEffect(() => {
@@ -1500,6 +1505,117 @@ React.useEffect(() => {
 						<Button variant="destructive" onClick={onClose}>Cerrar</Button>
 					</div>
 				</div>
+        <div className="p-4">
+  {/* Cabecera de la página visible */}
+  <div className="flex items-center justify-between mb-2">
+    <div className="text-sm text-emerald-400">{pageTitle(page)}</div>
+    <div className="text-xs text-emerald-500">{page + 1} / {TOTAL_PAGES}</div>
+  </div>
+
+  {/* Lomo / contenido */}
+  <div className="rounded-2xl border border-emerald-900 bg-[#0f2016] shadow-inner overflow-hidden">
+    <div className="min-h-[60vh] md:min-h-[520px] p-4 md:p-6">
+
+      {/* Página 0: Stats */}
+      {page === 0 && (
+        <div className="space-y-4">
+          <Card className="bg-[#0d1f14] border-emerald-900">
+            <CardHeader><CardTitle className="text-emerald-200">Estadísticas</CardTitle></CardHeader>
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+              {effective.map(s => (
+                <div key={s.key} className="text-sm flex items-center justify-between border-b border-emerald-900 py-1">
+                  <span className="text-emerald-300">{s.key}</span>
+                  <span className="font-semibold text-emerald-100">{s.value}</span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Páginas 1..eqCats.length: Equivalencias por categoría */}
+      {page > 0 && page < TOTAL_PAGES - 1 && (
+        <div className="space-y-4">
+          {showEq ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+              {(derived ?? [])
+                .filter(d => d.categoria === eqCats[page - 1])
+                .map((d, i) => (
+                  <div key={d.categoria + i} className="px-3 py-2 rounded-lg border border-emerald-900 bg-[#0f2016] flex items-center justify-between">
+                    <div className="text-sm">
+                      <span className="opacity-80">{d.stat}</span> → <span className="font-medium">{d.nombre}</span>
+                    </div>
+                    <div className="text-sm font-medium">
+                      {Number.isInteger(d.valor) ? d.valor : Number(d.valor.toFixed(2))}
+                    </div>
+                  </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm opacity-70">Equivalencias ocultas (usa el switch para mostrarlas).</div>
+          )}
+        </div>
+      )}
+
+      {/* Última página: Especies + Bonos */}
+      {page === TOTAL_PAGES - 1 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <Card className="bg-[#0d1f14] border-emerald-900">
+            <CardHeader><CardTitle className="text-emerald-200">Especies</CardTitle></CardHeader>
+            <CardContent>
+              <div className="mb-2 text-xs text-emerald-400">Principal</div>
+              <div className="tag">{principalName || "—"}</div>
+              <div className="mt-3 mb-2 text-xs text-emerald-400">Todas</div>
+              <div className="flex flex-wrap gap-2">
+                {allSpeciesNames.map((n,i)=>(<span key={i} className="tag">{n}</span>))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-[#0d1f14] border-emerald-900">
+            <CardHeader><CardTitle className="text-emerald-200">Bonificaciones Activas</CardTitle></CardHeader>
+            <CardContent>
+              {(character.bonos ?? []).length === 0 ? (
+                <div className="text-sm text-emerald-400">Sin bonificaciones.</div>
+              ) : (
+                <div className="grid grid-cols-1 gap-2">
+                  {character.bonos.map(b => {
+                    const bb = bonuses.find(x => x.id === b.bonusId);
+                    if (!bb) return null;
+                    return (
+                      <div key={b.bonusId} className="p-2 rounded-lg border border-emerald-900 bg-[#0f2016]">
+                        <div className="text-sm font-medium text-emerald-100">{bb.nombre ?? bb.id}</div>
+                        <div className="text-xs text-emerald-400">Nivel {b.nivel}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+
+    {/* Pie de libro: navegación */}
+    <div className="flex items-center justify-between gap-3 border-t border-emerald-900 bg-[#0c1913] px-4 py-2">
+      <Button variant="outline" onClick={goPrev} disabled={page===0}>← Anterior</Button>
+      <div className="flex items-center gap-2">
+        {Array.from({ length: TOTAL_PAGES }).map((_, i) => (
+          <button
+            key={i}
+            onClick={() => setPage(i)}
+            className={"h-2.5 w-2.5 rounded-full " + (i===page ? "bg-emerald-400" : "bg-emerald-900 hover:bg-emerald-700")}
+            aria-label={`Ir a página ${i+1}`}
+            title={pageTitle(i)}
+          />
+        ))}
+      </div>
+      <Button variant="outline" onClick={goNext} disabled={page===TOTAL_PAGES-1}>Siguiente →</Button>
+    </div>
+  </div>
+</div>
+
 				<div className="hidden p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
 					<Card className="bg-[#0d1f14] border-emerald-900">
 						<CardHeader><CardTitle className="text-emerald-200">Estadísticas</CardTitle></CardHeader>
@@ -2243,7 +2359,7 @@ END MOVED */}
         character={store.characters.find(ch => ch.id === sheetCharId) ?? null}
         species={store.species}
         bonuses={store.bonuses}
-        globalEquivalencias={store.globalEquivalencias ?? {}}
+        globalEquivalencias={store.globalEquivalencias ?? GLOBAL_EQUIVALENCIAS}
       />
 </Tabs>
     </div>
