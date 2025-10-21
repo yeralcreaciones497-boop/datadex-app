@@ -769,7 +769,7 @@ function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOpti
     const eq = (initial.equivalencias && Object.keys(initial.equivalencias).length > 0)
       ? initial.equivalencias
       : GLOBAL_EQUIVALENCIAS;
-
+    
     setEquivText(JSON.stringify(eq, null, 2));
   } else {
     setNombre("");
@@ -945,6 +945,7 @@ function SkillForm({ onSubmit, initial }: { onSubmit: (s: Skill) => void; initia
   const [clase, setClase] = useState<SkillClass>(initial?.clase ?? "Activa");
   const [tier, setTier] = useState<Tier>(initial?.tier ?? "F");
   const [definicion, setDefinicion] = useState(initial?.definicion ?? "");
+  const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -1218,6 +1219,7 @@ function CharacterForm({
 		especie: principal,
 		avatarUrl: initial?.avatarUrl,
 	};
+  
 
 	onSubmit(payload);
 }
@@ -1526,11 +1528,6 @@ React.useEffect(() => {
     "<div class='small'>" + allNames + "</div><br/>" +
     "<div class='box'><strong>Estadísticas</strong><div class='grid'>" +
     statsHtml +
-    <style jsx>{`
-    span.opacity-80 {
-      color: #a7f3d0 !important; /* Tailwind emerald-200 */
-    }
-  `}</style>
     "</div></div>" +
     "</body></html>";
 
@@ -2329,11 +2326,14 @@ END MOVED */}
           <Section title={editingChar ? "Editar personaje" : "Nuevo personaje"} actions={editingChar && <Button variant="outline" onClick={()=>setEditingCharId(null)}>Cancelar</Button>}>
            <CharacterForm
               initial={editingChar ?? undefined}
-              onSubmit={upsertCharacter}
+              onSubmit={(updatedCharacter) => {
+                  setEditingCharId(null);
+                  upsertCharacter(updatedCharacter);     
+              }}
               bonuses={store.bonuses}
               species={store.species}
-              extraStats={store.extraStats}
-          />
+              extraStats={store.extraStats}   
+            />
           </Section>
           <Section title={`Listado de personajes (${store.characters.length})`}>
             <div className="divide-y">
@@ -2352,7 +2352,7 @@ END MOVED */}
                     <Button size="sm" variant="destructive" onClick={()=>deleteCharacter(c.id)}><Trash2 className="w-4 h-4"/></Button>
                   </div>
                 </div>
-              ))}
+              ))};
             </div>
           </Section>
         </TabsContent>
