@@ -1144,6 +1144,34 @@ function CharacterForm({
   const [nivel, setNivel] = useState<number>(initial?.nivel ?? 1);
   const [stats, setStats] = useState<Character["stats"]>(initial?.stats ?? {});
   const [bonos, setBonos] = useState<Character["bonos"]>(initial?.bonos ?? []);
+
+  useEffect(() => {
+  if (!initial) {
+    setNombre("");
+    setDescripcion("");
+    setNivel(1);
+    setStats({});
+    setBonos([]);
+    setEspeciesSel([]);
+    return;
+  }
+
+  setNombre(initial.nombre ?? "");
+  setDescripcion(initial.descripcion ?? "");
+  setNivel(initial.nivel ?? 1);
+  setStats(initial.stats ?? {});
+  setBonos(initial.bonos ?? []);
+
+  // Sincroniza especies: usa array 'especies' (o fallback al campo legacy 'especie')
+  const next = (initial.especies && Array.isArray(initial.especies) && initial.especies.length
+    ? initial.especies
+    : initial.especie
+      ? [initial.especie]
+      : []
+  ).slice(0, 10);
+
+  setEspeciesSel(sortEspeciesAuto(next));
+}, [initial]);
 	
 	const [especiesSel, setEspeciesSel] = useState<string[]>(
 		sortEspeciesAuto(
@@ -2409,11 +2437,12 @@ END MOVED */}
       <CharacterSheetModal
         open={sheetOpen}
         onClose={()=>{ setSheetOpen(false); setSheetCharId(null); }}
+        // AQUÍ se pasa el objeto del personaje a editar.
         character={store.characters.find(ch => ch.id === sheetCharId) ?? null}
         species={store.species}
         bonuses={store.bonuses}
         globalEquivalencias={store.globalEquivalencias ?? GLOBAL_EQUIVALENCIAS}
-      />
+    />
 </Tabs>
     </div>
   );
