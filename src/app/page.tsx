@@ -37,7 +37,7 @@ type Species = {
   id: string;
   nombre: string;
   descripcion: string;
-  equivalencias: Record<string, Equivalencia>;
+  equivalencias: Record<string, any>;
   allowMind: boolean;
   baseMods?: SpeciesBaseMod[];
 };
@@ -102,7 +102,7 @@ type Store = {
   bonuses: Bonus[];
   extraStats: string[];
   species: Species[];
-  globalEquivalencias?: GlobalEquivalencias;
+  globalEquivalencias?: Record<string, any>;
 };
 // === Equivalencias globales por defecto (se aplican si la especie no define propias) ===
 const GLOBAL_EQUIVALENCIAS: Record<string, any> = {
@@ -1332,6 +1332,14 @@ function CharacterSheetModal({
 	species: Species[];
 	bonuses: Bonus[];
 }) {
+  // Mostrar/ocultar "Equivalencias derivadas" (recuerda preferencia)
+  const [showEq, setShowEq] = React.useState<boolean>(() => {
+    try { return JSON.parse(localStorage.getItem("showEqDerived") ?? "true"); } catch { return true; }
+  });
+  React.useEffect(() => {
+    try { localStorage.setItem("showEqDerived", JSON.stringify(showEq)); } catch {}
+  }, [showEq]);
+
 	if (!open || !character) return null;
 
 	const principalId = character.especies?.[0] ?? character.especie;
@@ -1438,29 +1446,46 @@ function CharacterSheetModal({
 						</CardContent>
 					</Card>
               {derived.length > 0 && (
-  <Section title="Equivalencias derivadas">
-    <div className="space-y-3">
-      {Array.from(new Map(derived.map(d => [d.categoria, true])).keys()).map(cat => {
-        const items = derived.filter(d => d.categoria === cat);
-        return (
-          <div key={cat}>
-            <div className="text-sm font-semibold mb-1">{cat}</div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {items.map((d, i) => (
-                <div key={cat + i} className="px-3 py-2 rounded-lg border border-emerald-900 bg-[#0f2016] flex items-center justify-between">
-                  <div className="text-sm">
-                    <span className="opacity-80">{d.stat}</span> → <span className="font-medium">{d.nombre}</span>
+  <Section
+    title="Equivalencias derivadas"
+    actions={
+      <div className="flex items-center gap-2 text-sm">
+        <Switch checked={showEq} onCheckedChange={setShowEq} />
+        <span className="opacity-80">{showEq ? "Visible" : "Oculto"}</span>
+      </div>
+    }
+  >
+    {showEq ? (
+      <div className="space-y-3">
+        {Array.from(new Map(derived.map(d => [d.categoria, true])).keys()).map(cat => {
+          const items = derived.filter(d => d.categoria === cat);
+          return (
+            <div key={cat}>
+              <div className="text-sm font-semibold mb-1">{cat}</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {items.map((d, i) => (
+                  <div
+                    key={cat + i}
+                    className="px-3 py-2 rounded-lg border border-emerald-900 bg-[#0f2016] flex items-center justify-between"
+                  >
+                    <div className="text-sm">
+                      <span className="opacity-80">{d.stat}</span> {" "}
+                      <span className="font-medium">{d.nombre}</span>
+                    </div>
+                    <div className="text-sm font-medium">{d.valor}</div>
                   </div>
-                  <div className="text-sm font-medium">{d.valor}</div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+    ) : (
+      <div className="text-sm opacity-70">Equivalencias ocultas (usa el switch para mostrarlas).</div>
+    )}
   </Section>
 )}
+
 					<Card className="bg-[#0d1f14] border-emerald-900">
 						<CardHeader><CardTitle className="text-emerald-200">Especies</CardTitle></CardHeader>
 						<CardContent>
