@@ -1384,8 +1384,8 @@ const derived = React.useMemo(
 );
 
 // ======= Libro: paginación dinámica (1 categoría por página) =======
-const eqCats: string[] = React.useMemo(
-  () => Array.from(new Set(derived.map(d => d.categoria))),
+const eqCats = React.useMemo(
+  () => Array.from(new Set((derived ?? []).map(d => d.categoria))),
   [derived]
 );
 
@@ -1410,15 +1410,34 @@ const goNext = React.useCallback(() => {
 }, [TOTAL_PAGES]);
 
 React.useEffect(() => {
-  const onKey = (e: KeyboardEvent) => {
+  const onKey = (e: any) => {
     if (e.key === "ArrowLeft") goPrev();
     if (e.key === "ArrowRight") goNext();
-    if (e.key === "Escape") onClose();  // cerrar modal
-    if (e.key === "Enter") goNext();    // avanzar con Enter
   };
   window.addEventListener("keydown", onKey);
   return () => window.removeEventListener("keydown", onKey);
-}, [TOTAL_PAGES]);
+}, [goPrev, goNext]);
+
+React.useEffect(() => {
+  try {
+    const saved = Number(localStorage.getItem("sheetPage") ?? 0);
+    if (!Number.isNaN(saved)) setPage(saved);
+  } catch {}
+}, []);
+
+React.useEffect(() => {
+  try { localStorage.setItem("sheetPage", String(page)); } catch {}
+}, [page]);
+
+React.useEffect(() => {
+  try {
+    const saved = JSON.parse(localStorage.getItem("showEqDerived") ?? "true");
+    setShowEq(!!saved);
+  } catch {}
+}, []);
+React.useEffect(() => {
+  try { localStorage.setItem("showEqDerived", JSON.stringify(showEq)); } catch {}
+}, [showEq]);
 
 
   function onExportPDF(ch: Character) {
@@ -1481,7 +1500,7 @@ React.useEffect(() => {
 						<Button variant="destructive" onClick={onClose}>Cerrar</Button>
 					</div>
 				</div>
-				<div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+				<div className="hidden p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
 					<Card className="bg-[#0d1f14] border-emerald-900">
 						<CardHeader><CardTitle className="text-emerald-200">Estadísticas</CardTitle></CardHeader>
 						<CardContent className="grid grid-cols-2 gap-2">
