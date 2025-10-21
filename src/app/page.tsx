@@ -1526,6 +1526,11 @@ React.useEffect(() => {
     "<div class='small'>" + allNames + "</div><br/>" +
     "<div class='box'><strong>Estadísticas</strong><div class='grid'>" +
     statsHtml +
+    <style jsx>{`
+    span.opacity-80 {
+      color: #a7f3d0 !important; /* Tailwind emerald-200 */
+    }
+  `}</style>
     "</div></div>" +
     "</body></html>";
 
