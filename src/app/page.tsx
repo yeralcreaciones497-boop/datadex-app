@@ -107,32 +107,32 @@ type Store = {
 // === Equivalencias globales por defecto (se aplican si la especie no define propias) ===
 const GLOBAL_EQUIVALENCIAS: Record<string, any> = {
   "Fisicas": {
-    "Fuerza": { "daño_fisico": 20, "carga_estable_kg": 8, "carga_maxima_kg": 24 },
+    "Fuerza": { "daño": 20, "carga_kg": 8, "carga_max": 24 },
     "Resistencia": { "reduccion_dano": 4 },
-    "Tenacidad": { "reduccion_dano_continuo": 2 },
-    "Vitalidad": { "hp_max": 250, "regeneracion_hp_2min": 20 },
-    "Destreza": { "velocidad_ms": 3, "precision": 0.4 }
+    "Tenacidad": { "red_continuo": 2 },
+    "Vitalidad": { "hp_max": 250, "regeneracion": 20 },
+    "Destreza": { "ms": 3, "precision": 0.4 }
   },
   "Tecnicas": {
-    "Tecnica": { "reduccion_tiempo_s": 0.06 },
-    "Potencia": { "dano_energetico": 25 },
+    "Tecnica": { "reduccion_s": 0.06 },
+    "Potencia": { "dano_ch": 25 },
     "Eficiencia": { "ahorro_chakra": 2 },
-    "Pureza": { "compatibilidad_sellado": 0.1 }
+    "Pureza": { "compatibilidad": 0.1 }
   },
   "MentalesSensoriales": {
     "Inteligencia": { "precision_tactica": 0.4 },
-    "Sabiduria": { "deteccion_espiritual": 0.5, "resistencia_mental": 0.2 },
-    "Mente": { "resistencia_psiquica": 0.5, "estabilidad_emocional": 1 },
-    "Percepcion": { "rango_sensorial_m": 0.5 },
+    "Sabiduria": { "deteccion_esp": 0.5, "resistencia_ment": 0.2 },
+    "Mente": { "resistencia_psi": 0.5, "estabilidad_emo": 1 },
+    "Percepcion": { "rango_m": 0.5 },
     "Instinto": { "evasion_base": 0.2 }
   },
   "SocialesTacticas": {
     "Determinacion": { "bono_bajo_hp": 1.5 },
-    "Influencia": { "rango_ordenes_m": 0.1, "moral_aliada": 0.2 },
-    "Estrategia": { "bono_coordinacion": 0.2, "iniciativa": 0.5 }
+    "Influencia": { "ordenes_m": 0.1, "moral_aliada": 0.2 },
+    "Estrategia": { "coordinacion": 0.2, "iniciativa": 0.5 }
   },
   "Energeticas": {
-    "Chakra": { "chakra_max": 250, "regeneracion_min": 0.3, "reduccion_costo_por_eficiencia": 2 }
+    "Chakra": { "chakra_max": 250, "regeneracion_min": 0.3, "reduccion_eficiencia": 2 }
   }
 };
 
