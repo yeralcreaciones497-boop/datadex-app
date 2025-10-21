@@ -1345,15 +1345,14 @@ function CharacterSheetModal({
 	bonuses: Bonus[];
   globalEquivalencias?: Record<string, any>;
 }) {
-  // Mostrar/ocultar "Equivalencias derivadas" (recuerda preferencia)
+  if (!open || !character) return null;
+
   const [showEq, setShowEq] = React.useState<boolean>(() => {
     try { return JSON.parse(localStorage.getItem("showEqDerived") ?? "true"); } catch { return true; }
   });
   React.useEffect(() => {
     try { localStorage.setItem("showEqDerived", JSON.stringify(showEq)); } catch {}
   }, [showEq]);
-
-	if (!open || !character) return null;
 
 	const principalId = character.especies?.[0] ?? character.especie;
 	const byId = new Map(species.map(s => [s.id, s]));
@@ -1884,7 +1883,7 @@ export default function Page() {
     const extraStats           = await loadConfigExtraStats();
     const globalEquivalencias  = await loadConfigGlobalEquivalencias();
     const evoRes = await supabase.from("skill_evo_links").select("*");
-    const evoLinks = evoRes.error ? [] : (evoRes.data ?? []);
+    const { data: evoLinks } = await supabase.from("skill_evo_links").select("*");
 
     setStore({
       skills: (skills ?? []) as any,
@@ -1930,6 +1929,7 @@ async function deleteSkill(idToDelete: string) {
 
 async function addEvo(from: string, to: string) {
   await supabase.from("skill_evo_links").insert({ id: crypto.randomUUID(), from, to });
+  await loadData();
 }
 
 async function upsertBonus(b: Bonus) {
