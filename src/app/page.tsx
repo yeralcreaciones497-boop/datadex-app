@@ -107,32 +107,32 @@ type Store = {
 // === Equivalencias globales por defecto (se aplican si la especie no define propias) ===
 const GLOBAL_EQUIVALENCIAS: Record<string, any> = {
   "Fisicas": {
-    "Fuerza": { "daño": 20, "carga_kg": 8, "carga_max": 24 },
+    "Fuerza": { "daño_fisico": 20, "carga_estable_kg": 8, "carga_maxima_kg": 24 },
     "Resistencia": { "reduccion_dano": 4 },
-    "Tenacidad": { "red_continuo": 2 },
-    "Vitalidad": { "hp_max": 250, "regeneracion": 20 },
-    "Destreza": { "ms": 3, "precision": 0.4 }
+    "Tenacidad": { "reduccion_dano_continuo": 2 },
+    "Vitalidad": { "hp_max": 250, "regeneracion_hp_2min": 20 },
+    "Destreza": { "velocidad_ms": 3, "precision": 0.4 }
   },
   "Tecnicas": {
-    "Tecnica": { "reduccion_s": 0.06 },
-    "Potencia": { "dano_ch": 25 },
+    "Tecnica": { "reduccion_tiempo_s": 0.06 },
+    "Potencia": { "dano_energetico": 25 },
     "Eficiencia": { "ahorro_chakra": 2 },
-    "Pureza": { "compatibilidad": 0.1 }
+    "Pureza": { "compatibilidad_sellado": 0.1 }
   },
   "MentalesSensoriales": {
     "Inteligencia": { "precision_tactica": 0.4 },
-    "Sabiduria": { "deteccion_esp": 0.5, "resistencia_ment": 0.2 },
-    "Mente": { "resistencia_psi": 0.5, "estabilidad_emo": 1 },
-    "Percepcion": { "rango_m": 0.5 },
+    "Sabiduria": { "deteccion_espiritual": 0.5, "resistencia_mental": 0.2 },
+    "Mente": { "resistencia_psiquica": 0.5, "estabilidad_emocional": 1 },
+    "Percepcion": { "rango_sensorial_m": 0.5 },
     "Instinto": { "evasion_base": 0.2 }
   },
   "SocialesTacticas": {
     "Determinacion": { "bono_bajo_hp": 1.5 },
-    "Influencia": { "ordenes_m": 0.1, "moral_aliada": 0.2 },
-    "Estrategia": { "coordinacion": 0.2, "iniciativa": 0.5 }
+    "Influencia": { "rango_ordenes_m": 0.1, "moral_aliada": 0.2 },
+    "Estrategia": { "bono_coordinacion": 0.2, "iniciativa": 0.5 }
   },
   "Energeticas": {
-    "Chakra": { "chakra_max": 250, "regeneracion_min": 0.3, "reduccion_eficiencia": 2 }
+    "Chakra": { "chakra_max": 250, "regeneracion_min": 0.3, "reduccion_costo_por_eficiencia": 2 }
   }
 };
 
@@ -318,6 +318,43 @@ async function saveConfigExtraStats(extra: string[]) {
   await supabase.from("app_config").upsert({ id: "global", data: payload });
 }
 // === Equivalencias globales (persistentes en app_config) ===
+
+// === Helper: nombres cortos de equivalencias ===
+const EQUIV_ALIASES: Record<string, string> = {
+  "daño_fisico": "daño",
+  "carga_estable_kg": "carga (kg)",
+  "carga_maxima_kg": "carga máx (kg)",
+  "reduccion_dano": "red. daño",
+  "reduccion_dano_continuo": "red. cont.",
+  "hp_max": "HP máx",
+  "regeneracion_hp_2min": "regen HP",
+  "velocidad_ms": "vel (m/s)",
+  "precision": "precisión",
+  "reduccion_tiempo_s": "red. tiempo",
+  "dano_energetico": "daño ener.",
+  "ahorro_chakra": "ahorro ch.",
+  "compatibilidad_sellado": "compat. sell.",
+  "precision_tactica": "prec. táct.",
+  "deteccion_espiritual": "det. esp.",
+  "resistencia_mental": "res. mental",
+  "resistencia_psiquica": "res. psíquica",
+  "estabilidad_emocional": "estab. emo.",
+  "rango_sensorial_m": "rango sens.",
+  "evasion_base": "evasión",
+  "bono_bajo_hp": "bono HP bajo",
+  "rango_ordenes_m": "rango ord.",
+  "moral_aliada": "moral",
+  "bono_coordinacion": "bono coord.",
+  "iniciativa": "inic.",
+  "chakra_max": "chakra máx",
+  "regeneracion_min": "regen/min",
+  "reduccion_costo_por_eficiencia": "↓coste/efic."
+};
+
+export function shortEquivName(key: string): string {
+  return EQUIV_ALIASES[key] ?? key;
+}
+
 
 /** Mezcla equivalencias: por-especie sobre globales (override por clave). */
 function mergeEquivalencias(
@@ -1454,6 +1491,7 @@ React.useEffect(() => {
   try { localStorage.setItem("showEqDerived", JSON.stringify(showEq)); } catch {}
 }, [showEq]);
 
+  
 
   function onExportPDF(ch: Character) {
 	try {
@@ -1553,7 +1591,7 @@ React.useEffect(() => {
                 .map((d, i) => (
                   <div key={d.categoria + i} className="px-3 py-2 rounded-lg border border-emerald-900 bg-[#0f2016] flex items-center justify-between">
                     <div className="text-sm">
-                      <span className="opacity-80">{d.stat}</span> → <span className="font-medium">{d.nombre}</span>
+                      <span className="opacity-80">{d.stat}</span> → <span className="font-medium">{shortEquivName(d.nombre)}</span>
                     </div>
                     <div className="text-sm font-medium">
                       {Number.isInteger(d.valor) ? d.valor : Number(d.valor.toFixed(2))}
@@ -1663,7 +1701,7 @@ React.useEffect(() => {
                   >
                     <div className="text-sm">
                       <span className="opacity-80">{d.stat}</span> {" "}
-                      <span className="font-medium">{d.nombre}</span>
+                      <span className="font-medium">{shortEquivName(d.nombre)}</span>
                     </div>
                     <div className="text-sm font-medium">{d.valor}</div>
                   </div>
@@ -1883,7 +1921,7 @@ export default function Page() {
     const extraStats           = await loadConfigExtraStats();
     const globalEquivalencias  = await loadConfigGlobalEquivalencias();
     const evoRes = await supabase.from("skill_evo_links").select("*");
-    const { data: evoLinks } = await supabase.from("skill_evo_links").select("*");
+    const evoLinks = evoRes.error ? [] : (evoRes.data ?? []);
 
     setStore({
       skills: (skills ?? []) as any,
