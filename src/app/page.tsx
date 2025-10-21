@@ -1866,13 +1866,14 @@ export default function Page() {
 
  const loadData = useCallback(async () => {
   try {
-    const { data: skills }     = await supabase.from("skills").select("*");
-    const { data: evoLinks }   = await supabase.from("skill_evo_links").select("*");
-    const { data: characters } = await supabase.from("characters").select("*");
+    const { data: skills = [] }   = await supabase.from("skills").select("*").throwOnError();
+    const { data: characters = [] } = await supabase.from("characters").select("*").throwOnError();
     const { data: bonuses }    = await supabase.from("bonuses").select("*");
     const { data: species }    = await supabase.from("species").select("*").order("nombre", { ascending: true });
     const extraStats           = await loadConfigExtraStats();
     const globalEquivalencias  = await loadConfigGlobalEquivalencias();
+    const evoRes = await supabase.from("skill_evo_links").select("*");
+    const evoLinks = evoRes.error ? [] : (evoRes.data ?? []);
 
     setStore({
       skills: (skills ?? []) as any,
@@ -1917,7 +1918,11 @@ async function deleteSkill(idToDelete: string) {
 }
 
 async function addEvo(from: string, to: string) {
-  const { error } = await supabase.from("skill_evo_links").insert({ id: uid("evo"), from, to });
+  const { error } = await supabase.from("skill_evo_links").insert({
+  id: crypto.randomUUID(),
+  from,
+  to
+});
   if (error) alert("Error añadiendo relación: " + error.message);
   await loadData();
 }
