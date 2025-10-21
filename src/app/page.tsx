@@ -1596,7 +1596,7 @@ React.useEffect(() => {
                 .map((d, i) => (
                   <div key={d.categoria + i} className="px-3 py-2 rounded-lg border border-emerald-900 bg-[#0f2016] flex items-center justify-between">
                     <div className="text-sm">
-                      <span className="opacity-80">{d.stat}</span> → <span className="font-medium">{shortEquivName(d.nombre)}</span>
+                      <span className="text-emerald-200 font-semibold">{d.stat}</span> → <span className="font-medium">{d.nombre}</span>
                     </div>
                     <div className="text-sm font-medium">
                       {Number.isInteger(d.valor) ? d.valor : Number(d.valor.toFixed(2))}
@@ -1705,7 +1705,7 @@ React.useEffect(() => {
                     className="px-3 py-2 rounded-lg border border-emerald-900 bg-[#0f2016] flex items-center justify-between"
                   >
                     <div className="text-sm">
-                      <span className="opacity-80">{d.stat}</span> {" "}
+                      <span className="text-emerald-200 font-semibold">{d.stat}</span> → <span className="font-medium">{d.nombre}</span>
                       <span className="font-medium">{shortEquivName(d.nombre)}</span>
                     </div>
                     <div className="text-sm font-medium">{d.valor}</div>
