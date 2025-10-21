@@ -318,6 +318,77 @@ async function saveConfigExtraStats(extra: string[]) {
   await supabase.from("app_config").upsert({ id: "global", data: payload });
 }
 // === Equivalencias globales (persistentes en app_config) ===
+
+/** Mezcla equivalencias: por-especie sobre globales (override por clave). */
+function mergeEquivalencias(
+  globalEq: Record<string, any> | undefined,
+  speciesEqList: Array<Record<string, any>>
+) {
+  const out: Record<string, any> = JSON.parse(JSON.stringify(globalEq ?? {}));
+  for (const eq of speciesEqList) {
+    if (!eq) continue;
+    for (const categoria of Object.keys(eq)) {
+      out[categoria] = out[categoria] ?? {};
+      for (const stat of Object.keys(eq[categoria] ?? {})) {
+        out[categoria][stat] = {
+          ...(out[categoria]?.[stat] ?? {}),
+          ...(eq[categoria]?.[stat] ?? {}),
+        };
+      }
+    }
+  }
+  return out;
+}
+
+/** Construye mapa stat->valor efectivo (usa tu calcEffectiveStat). */
+function buildEffectiveMap(
+  ch: Character,
+  bonuses: Bonus[],
+  species: Species[],
+  statKeys: StatKey[]
+) {
+  const map: Record<string, number> = {};
+  for (const k of statKeys) {
+    map[k] = calcEffectiveStat(ch, k as StatKey, bonuses, species); // ya existe en tu archivo
+  }
+  return map;
+}
+
+/** A partir de equivalencias y valores efectivos, genera lista plana derivada. */
+function deriveMetricsFromEquivalencias(
+  effective: Record<string, number>,
+  equivalencias: Record<string, any>
+) {
+  type Row = { categoria: string; stat: string; nombre: string; valor: number };
+  const rows: Row[] = [];
+
+  for (const categoria of Object.keys(equivalencias ?? {})) {
+    const porStat = equivalencias[categoria] ?? {};
+    for (const stat of Object.keys(porStat)) {
+      const base = effective[stat] ?? 0;
+      const defs = porStat[stat] ?? {};
+      for (const nombre of Object.keys(defs)) {
+        const factor = Number(defs[nombre] ?? 0);
+        if (!isFinite(factor)) continue;
+        rows.push({
+          categoria,
+          stat,
+          nombre,
+          valor: Math.round(base * factor * 100) / 100,
+        });
+      }
+    }
+  }
+  // orden estético: por categoría, luego por stat, luego por nombre
+  rows.sort((a, b) =>
+    a.categoria.localeCompare(b.categoria) ||
+    a.stat.localeCompare(b.stat) ||
+    a.nombre.localeCompare(b.nombre)
+  );
+  return rows;
+}
+
+
 export type GlobalEquivalencias = Record<string, any>;
 
 export async function loadConfigGlobalEquivalencias(): Promise<GlobalEquivalencias> {
@@ -1278,6 +1349,21 @@ function CharacterSheetModal({
 		key: k,
 		value: calcEffectiveStat(character, k as StatKey, bonuses, species)
 	}));
+  
+  const globalEquivalencias = (window as any).__GLOBAL_EQ__ ?? {}; // TEMP fallback si aún no pasaste por props
+
+  // 2) equivalencias por especie (todas las especies del personaje)
+  const eqSpeciesList = (character.especies?.length ? character.especies : (principalId ? [principalId] : []))
+    .map(id => byId.get(id)?.equivalencias ?? {})
+    .filter(Boolean);
+
+  const mergedEquivalencias = mergeEquivalencias(globalEquivalencias, eqSpeciesList);
+
+  // 3) map efectivo
+  const effectiveMap = Object.fromEntries(effective.map(e => [e.key, e.value]));
+
+  // 4) derivar
+  const derived = deriveMetricsFromEquivalencias(effectiveMap, mergedEquivalencias);
 
   function onExportPDF(ch: Character) {
 	try {
@@ -1351,7 +1437,30 @@ function CharacterSheetModal({
 							))}
 						</CardContent>
 					</Card>
-
+              {derived.length > 0 && (
+  <Section title="Equivalencias derivadas">
+    <div className="space-y-3">
+      {Array.from(new Map(derived.map(d => [d.categoria, true])).keys()).map(cat => {
+        const items = derived.filter(d => d.categoria === cat);
+        return (
+          <div key={cat}>
+            <div className="text-sm font-semibold mb-1">{cat}</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {items.map((d, i) => (
+                <div key={cat + i} className="px-3 py-2 rounded-lg border border-emerald-900 bg-[#0f2016] flex items-center justify-between">
+                  <div className="text-sm">
+                    <span className="opacity-80">{d.stat}</span> → <span className="font-medium">{d.nombre}</span>
+                  </div>
+                  <div className="text-sm font-medium">{d.valor}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </Section>
+)}
 					<Card className="bg-[#0d1f14] border-emerald-900">
 						<CardHeader><CardTitle className="text-emerald-200">Especies</CardTitle></CardHeader>
 						<CardContent>
