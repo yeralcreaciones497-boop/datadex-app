@@ -102,7 +102,40 @@ type Store = {
   bonuses: Bonus[];
   extraStats: string[];
   species: Species[];
+  globalEquivalencias?: GlobalEquivalencias;
 };
+// === Equivalencias globales por defecto (se aplican si la especie no define propias) ===
+const GLOBAL_EQUIVALENCIAS: Record<string, any> = {
+  "Fisicas": {
+    "Fuerza": { "daño_fisico": 20, "carga_estable_kg": 8, "carga_maxima_kg": 24 },
+    "Resistencia": { "reduccion_dano": 4 },
+    "Tenacidad": { "reduccion_dano_continuo": 2 },
+    "Vitalidad": { "hp_max": 250, "regeneracion_hp_2min": 20 },
+    "Destreza": { "velocidad_ms": 3, "precision": 0.4 }
+  },
+  "Tecnicas": {
+    "Tecnica": { "reduccion_tiempo_s": 0.06 },
+    "Potencia": { "dano_energetico": 25 },
+    "Eficiencia": { "ahorro_chakra": 2 },
+    "Pureza": { "compatibilidad_sellado": 0.1 }
+  },
+  "MentalesSensoriales": {
+    "Inteligencia": { "precision_tactica": 0.4 },
+    "Sabiduria": { "deteccion_espiritual": 0.5, "resistencia_mental": 0.2 },
+    "Mente": { "resistencia_psiquica": 0.5, "estabilidad_emocional": 1 },
+    "Percepcion": { "rango_sensorial_m": 0.5 },
+    "Instinto": { "evasion_base": 0.2 }
+  },
+  "SocialesTacticas": {
+    "Determinacion": { "bono_bajo_hp": 1.5 },
+    "Influencia": { "rango_ordenes_m": 0.1, "moral_aliada": 0.2 },
+    "Estrategia": { "bono_coordinacion": 0.2, "iniciativa": 0.5 }
+  },
+  "Energeticas": {
+    "Chakra": { "chakra_max": 250, "regeneracion_min": 0.3, "reduccion_costo_por_eficiencia": 2 }
+  }
+};
+
 
 const EMPTY_STORE: Store = { skills:[], evoLinks:[], characters:[], bonuses:[], extraStats:[], species:[] };
 
@@ -283,6 +316,34 @@ async function loadConfigExtraStats(): Promise<string[]> {
 async function saveConfigExtraStats(extra: string[]) {
   const payload = { extraStats: Array.from(new Set(extra.map(s => s.trim()).filter(Boolean))) };
   await supabase.from("app_config").upsert({ id: "global", data: payload });
+}
+// === Equivalencias globales (persistentes en app_config) ===
+export type GlobalEquivalencias = Record<string, any>;
+
+export async function loadConfigGlobalEquivalencias(): Promise<GlobalEquivalencias> {
+  const { data, error } = await supabase
+    .from("app_config")
+    .select("data")
+    .eq("id", "global")
+    .single();
+  if (error || !data?.data) return {};
+  return (data.data.globalEquivalencias ?? {}) as GlobalEquivalencias;
+}
+
+export async function saveConfigGlobalEquivalencias(equiv: GlobalEquivalencias) {
+  // merge con data existente para no pisar otras claves (p.ej. extraStats)
+  const { data: current } = await supabase
+    .from("app_config")
+    .select("data")
+    .eq("id", "global")
+    .single();
+
+  const merged = {
+    ...(current?.data ?? {}),
+    globalEquivalencias: equiv,
+  };
+
+  await supabase.from("app_config").upsert({ id: "global", data: merged });
 }
 
 
@@ -557,7 +618,7 @@ function Pill({ children }: { children: React.ReactNode }) {
 }
 
 /* ================= Species Form ================= */
-function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOptionsExtra }: { initial?: Species; onSubmit: (s: Species) => void; statOptions: string[]; statOptionsBase?: string[]; statOptionsExtra?: string[] }) {
+function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOptionsExtra, globalEquivalencias }: { initial?: Species; onSubmit: (s: Species) => void; statOptions: string[]; statOptionsBase?: string[]; statOptionsExtra?: string[]; globalEquivalencias?: GlobalEquivalencias;}) {
   const [nombre, setNombre] = useState(initial?.nombre ?? "");
   const [descripcion, setDescripcion] = useState(initial?.descripcion ?? "");
   const [allowMind, setAllowMind] = useState<boolean>(initial?.allowMind ?? true);
@@ -571,12 +632,23 @@ function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOpti
   function removeMod(i: number) { setMods(prev => prev.filter((_, idx) => idx !== i)); }
 
   function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    let equivalencias: Record<string, Equivalencia> = {};
-    try { equivalencias = JSON.parse(equivText || "{}"); } catch { alert("Equivalencias debe ser JSON válido"); return; }
-    const out: Species = { id: initial?.id ?? uid("spec"), nombre: nombre.trim(), descripcion, allowMind, baseMods: mods, equivalencias };
-    onSubmit(out);
-  }
+  e.preventDefault();
+  let equivalencias: Record<string, any> = {};
+  try { equivalencias = JSON.parse(equivText || "{}"); } 
+  catch { alert("Equivalencias debe ser JSON válido"); return; }
+
+  const out: Species = {
+    id: initial?.id ?? uid("spec"),
+    nombre: nombre.trim(),
+    descripcion,
+    allowMind,
+    baseMods: mods,
+    equivalencias: (equivalencias && Object.keys(equivalencias).length > 0) ? equivalencias : {}
+  };
+  onSubmit(out);
+}
+
+
   const RESET_ON_CLEAR = true;
   useEffect(() => {
   // Cuando cambie "initial" (otra especie seleccionada), sincroniza el formulario
@@ -584,14 +656,19 @@ function SpeciesForm({ initial, onSubmit, statOptions, statOptionsBase, statOpti
     setNombre(initial.nombre ?? "");
     setDescripcion(initial.descripcion ?? "");
     setAllowMind(initial.allowMind ?? true);
-    setMods((initial.baseMods ?? []).map(m => ({ ...m, tipo: m.tipo ?? "Ventaja" }))); 
-    setEquivText(JSON.stringify(initial.equivalencias ?? {}, null, 2));
-  } else if (RESET_ON_CLEAR) {
+    setMods((initial.baseMods ?? []).map(m => ({ ...m, tipo: m.tipo ?? "Ventaja" })));
+
+    const eq = (initial.equivalencias && Object.keys(initial.equivalencias).length > 0)
+      ? initial.equivalencias
+      : GLOBAL_EQUIVALENCIAS;
+
+    setEquivText(JSON.stringify(eq, null, 2));
+  } else {
     setNombre("");
     setDescripcion("");
     setAllowMind(true);
     setMods([]);
-    setEquivText(JSON.stringify({}, null, 2));
+    setEquivText(JSON.stringify(GLOBAL_EQUIVALENCIAS, null, 2));
   }
 }, [initial]);
   return (
@@ -1314,6 +1391,67 @@ function CharacterSheetModal({
 		</div>
 	);
 }
+function GlobalEquivalenciasEditor({
+  initial,
+  onSaved,
+}: {
+  initial: GlobalEquivalencias;
+  onSaved?: () => Promise<void> | void;
+}) {
+  const [text, setText] = React.useState<string>(
+    JSON.stringify(initial ?? {}, null, 2)
+  );
+
+  // Sincroniza cuando cambie lo cargado desde Supabase
+  React.useEffect(() => {
+    setText(JSON.stringify(initial ?? {}, null, 2));
+  }, [initial]);
+
+  async function saveAll() {
+    try {
+      // Validación de JSON
+      let parsed: any = {};
+      try {
+        parsed = JSON.parse(text || "{}");
+        if (typeof parsed !== "object" || Array.isArray(parsed)) {
+          throw new Error("El JSON debe ser un objeto (no un array).");
+        }
+      } catch (e: any) {
+        alert("JSON inválido: " + (e?.message || String(e)));
+        return;
+      }
+
+      // Persistir en app_config(id="global").data.globalEquivalencias (merge-safe)
+      await saveConfigGlobalEquivalencias(parsed);
+
+      if (onSaved) await onSaved();
+      alert("Equivalencias globales guardadas.");
+    } catch (e: any) {
+      alert("Error guardando equivalencias globales: " + (e?.message || String(e)));
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <Section title="Equivalencias globales (JSON)">
+        <Textarea
+          className="min-h-[260px]"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <div className="flex justify-end mt-2">
+          <Button onClick={saveAll} className="gap-2">
+            <Save className="w-4 h-4" /> Guardar
+          </Button>
+        </div>
+        <div className="text-xs opacity-70 mt-1">
+          Se guardan en <code>app_config(id="global").data.globalEquivalencias</code>. 
+          No sobrescribe otras claves de <code>data</code>.
+        </div>
+      </Section>
+    </div>
+  );
+}
 
 function GlobalStatsEditor({
   initial,
@@ -1416,6 +1554,7 @@ export default function Page() {
     const { data: bonuses }    = await supabase.from("bonuses").select("*");
     const { data: species }    = await supabase.from("species").select("*").order("nombre", { ascending: true });
     const extraStats           = await loadConfigExtraStats();
+    const globalEquivalencias  = await loadConfigGlobalEquivalencias();
 
     setStore({
       skills: (skills ?? []) as any,
@@ -1434,11 +1573,13 @@ export default function Page() {
         allowMind: !!s.allow_mind,
         baseMods: (s.base_mods ?? []) as any[],
       })),
+      globalEquivalencias,
     });
   } catch (err) {
     console.error("loadData() error:", err);
   }
 }, []);
+
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -1876,13 +2017,23 @@ END MOVED */}
         </TabsContent>
       
         <TabsContent value="config" className="mt-4 space-y-3">
-          <Section title="Estadísticas globales (para todos los personajes)">
-            <GlobalStatsEditor
-              initial={store.extraStats}
-              onSaved={async () => { await loadData(); }}
-            />
-          </Section>
-        </TabsContent>
+  {/* CONFIG → Estadísticas globales */}
+  <Section title="Estadísticas globales (para todos los personajes)">
+    <GlobalStatsEditor
+      initial={store.extraStats}
+      onSaved={async () => { await loadData(); }}
+    />
+  </Section>
+
+  {/* CONFIG → Equivalencias globales */}
+  <Section title="Equivalencias globales (para todas las especies)">
+    <GlobalEquivalenciasEditor
+      initial={store.globalEquivalencias ?? {}}
+      onSaved={async () => { await loadData(); }}
+    />
+  </Section>
+</TabsContent>
+
 
       <CharacterSheetModal
         open={sheetOpen}
