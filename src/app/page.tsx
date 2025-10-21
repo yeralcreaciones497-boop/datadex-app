@@ -1324,13 +1324,15 @@ function CharacterSheetModal({
 	onClose,
 	character,
 	species,
-	bonuses
+	bonuses,
+  globalEquivalencias = {}
 }: {
 	open: boolean;
 	onClose: () => void;
 	character: Character | null;
 	species: Species[];
 	bonuses: Bonus[];
+  globalEquivalencias?: Record<string, any>;
 }) {
   // Mostrar/ocultar "Equivalencias derivadas" (recuerda preferencia)
   const [showEq, setShowEq] = React.useState<boolean>(() => {
@@ -1358,27 +1360,35 @@ function CharacterSheetModal({
 		value: calcEffectiveStat(character, k as StatKey, bonuses, species)
 	}));
   
-  const globalEquivalencias = (window as any).__GLOBAL_EQ__ ?? {}; // TEMP fallback si aún no pasaste por props
+  // ===== Mezclar equivalencias (global + especies del personaje) =====
 
-  // 2) equivalencias por especie (todas las especies del personaje)
-  const eqSpeciesList = (character.especies?.length ? character.especies : (principalId ? [principalId] : []))
-    .map(id => byId.get(id)?.equivalencias ?? {})
-    .filter(Boolean);
+const eqSpeciesList = (character.especies?.length ? character.especies : (principalId ? [principalId] : []))
+  .map(id => byId.get(id)?.equivalencias ?? {})
+  .filter(Boolean);
 
-  const mergedEquivalencias = mergeEquivalencias(globalEquivalencias, eqSpeciesList);
+const mergedEquivalencias = React.useMemo(
+  () => mergeEquivalencias(globalEquivalencias ?? {}, eqSpeciesList ?? []),
+  [globalEquivalencias, eqSpeciesList]
+);
 
-  // 3) map efectivo
-  const effectiveMap = Object.fromEntries(effective.map(e => [e.key, e.value]));
+// Mapa stat -> valor efectivo
+const effectiveMap = React.useMemo(
+  () => Object.fromEntries(effective.map(e => [e.key, e.value])),
+  [effective]
+);
 
-  // 4) derivar
-  const derived = deriveMetricsFromEquivalencias(effectiveMap, mergedEquivalencias);
+// Derivar métricas (categoria, stat, nombre, valor)
+const derived = React.useMemo(
+  () => deriveMetricsFromEquivalencias(effectiveMap, mergedEquivalencias),
+  [effectiveMap, mergedEquivalencias]
+);
 
-  
-// ======= Libro: paginación dinámica (1 cat de equivalencias por página) =======
+// ======= Libro: paginación dinámica (1 categoría por página) =======
 const eqCats: string[] = React.useMemo(
   () => Array.from(new Set(derived.map(d => d.categoria))),
   [derived]
 );
+
 const TOTAL_PAGES = 1 + eqCats.length + 1;
 function pageTitle(idx: number) {
   if (idx === 0) return "Estadísticas";
@@ -1386,18 +1396,32 @@ function pageTitle(idx: number) {
   const cat = eqCats[idx - 1];
   return `Equivalencias · ${cat}`;
 }
-const [page, setPage] = React.useState(0);
-const goPrev = () => setPage(p => Math.max(0, p - 1));
-const goNext = () => setPage(p => Math.min(TOTAL_PAGES - 1, p + 1));
+// recuerda la página actual
+const [page, setPage] = React.useState<number>(() => {
+  try { return Number(localStorage.getItem("sheetPage") ?? 0) || 0; } catch { return 0; }
+});
+
+const goPrev = React.useCallback(() => {
+  setPage(p => Math.max(0, p - 1));
+}, []);
+
+const goNext = React.useCallback(() => {
+  setPage(p => Math.min(TOTAL_PAGES - 1, p + 1));
+}, [TOTAL_PAGES]);
+
 React.useEffect(() => {
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "ArrowLeft") goPrev();
     if (e.key === "ArrowRight") goNext();
+    if (e.key === "Escape") onClose();  // cerrar modal
+    if (e.key === "Enter") goNext();    // avanzar con Enter
   };
   window.addEventListener("keydown", onKey);
   return () => window.removeEventListener("keydown", onKey);
 }, [TOTAL_PAGES]);
-function onExportPDF(ch: Character) {
+
+
+  function onExportPDF(ch: Character) {
 	try {
 		const w = window.open("", "_blank", "width=1024,height=768");
 		if (!w) return;
@@ -1457,129 +1481,7 @@ function onExportPDF(ch: Character) {
 						<Button variant="destructive" onClick={onClose}>Cerrar</Button>
 					</div>
 				</div>
-				<div className="p-4">
-  {/* Cabecera de la página visible */}
-  <div className="flex items-center justify-between mb-2">
-    <div className="text-sm text-emerald-400">{pageTitle(page)}</div>
-    <div className="text-xs text-emerald-500">{page + 1} / {TOTAL_PAGES}</div>
-  </div>
-
-  {/* Lomo / contenido */}
-  <div className="rounded-2xl border border-emerald-900 bg-[#0f2016] shadow-inner overflow-hidden">
-    <div className="min-h-[60vh] md:min-h-[520px] p-4 md:p-6">
-
-      {/* Página 0: Stats */}
-      {page === 0 && (
-        <div className="space-y-4">
-          <Card className="bg-[#0d1f14] border-emerald-900">
-            <CardHeader><CardTitle className="text-emerald-200">Estadísticas</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-              {effective.map(s => (
-                <div key={s.key} className="text-sm flex items-center justify-between border-b border-emerald-900 py-1">
-                  <span className="text-emerald-300">{s.key}</span>
-                  <span className="font-semibold text-emerald-100">{s.value}</span>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Páginas 1..eqCats.length: Equivalencias por categoría */}
-      {page > 0 && page < TOTAL_PAGES - 1 && (
-        <div className="space-y-4">
-          {!derived.length ? (
-            <div className="text-sm opacity-70">Esta ficha no tiene equivalencias configuradas.</div>
-          ) : (
-            <Section
-              title={pageTitle(page)}
-              actions={
-                <div className="flex items-center gap-2 text-sm">
-                  <Switch checked={showEq} onCheckedChange={setShowEq} />
-                  <span className="opacity-80">{showEq ? "Visible" : "Oculto"}</span>
-                </div>
-              }
-            >
-              {showEq ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                  {derived
-                    .filter(d => d.categoria === eqCats[page - 1])
-                    .map((d, i) => (
-                      <div key={d.categoria + i} className="px-3 py-2 rounded-lg border border-emerald-900 bg-[#0f2016] flex items-center justify-between">
-                        <div className="text-sm">
-                          <span className="opacity-80">{d.stat}</span> → <span className="font-medium">{d.nombre}</span>
-                        </div>
-                        <div className="text-sm font-medium">{d.valor}</div>
-                      </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-sm opacity-70">Equivalencias ocultas (usa el switch para mostrarlas).</div>
-              )}
-            </Section>
-          )}
-        </div>
-      )}
-
-      {/* Última página: Especies + Bonos */}
-      {page === TOTAL_PAGES - 1 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <Card className="bg-[#0d1f14] border-emerald-900">
-            <CardHeader><CardTitle className="text-emerald-200">Especies</CardTitle></CardHeader>
-            <CardContent>
-              <div className="mb-2 text-xs text-emerald-400">Principal</div>
-              <div className="tag">{principalName || "—"}</div>
-              <div className="mt-3 mb-2 text-xs text-emerald-400">Todas</div>
-              <div className="flex flex-wrap gap-2">
-                {allSpeciesNames.map((n,i)=>(<span key={i} className="tag">{n}</span>))}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-[#0d1f14] border-emerald-900">
-            <CardHeader><CardTitle className="text-emerald-200">Bonificaciones Activas</CardTitle></CardHeader>
-            <CardContent>
-              {(character.bonos ?? []).length === 0 ? (
-                <div className="text-sm text-emerald-400">Sin bonificaciones.</div>
-              ) : (
-                <div className="grid grid-cols-1 gap-2">
-                  {character.bonos.map(b => {
-                    const bb = bonuses.find(x => x.id === b.bonusId);
-                    if (!bb) return null;
-                    return (
-                      <div key={b.bonusId} className="p-2 rounded-lg border border-emerald-900 bg-[#0f2016]">
-                        <div className="text-sm font-medium text-emerald-100">{bb.nombre ?? bb.id}</div>
-                        <div className="text-xs text-emerald-400">Nivel {b.nivel}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-    </div>
-
-    {/* Pie de libro: navegación */}
-    <div className="flex items-center justify-between gap-3 border-t border-emerald-900 bg-[#0c1913] px-4 py-2">
-      <Button variant="outline" onClick={goPrev} disabled={page===0}>← Anterior</Button>
-      <div className="flex items-center gap-2">
-        {Array.from({ length: TOTAL_PAGES }).map((_, i) => (
-          <button
-            key={i}
-            onClick={() => setPage(i)}
-            className={"h-2.5 w-2.5 rounded-full " + (i===page ? "bg-emerald-400" : "bg-emerald-900 hover:bg-emerald-700")}
-            aria-label={`Ir a página ${i+1}`}
-            title={pageTitle(i)}
-          />
-        ))}
-      </div>
-      <Button variant="outline" onClick={goNext} disabled={page===TOTAL_PAGES-1}>Siguiente →</Button>
-    </div>
-  </div>
-</div>
-<div className="hidden p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+				<div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
 					<Card className="bg-[#0d1f14] border-emerald-900">
 						<CardHeader><CardTitle className="text-emerald-200">Estadísticas</CardTitle></CardHeader>
 						<CardContent className="grid grid-cols-2 gap-2">
@@ -1671,6 +1573,7 @@ function onExportPDF(ch: Character) {
 		</div>
 	);
 }
+
 function GlobalEquivalenciasEditor({
   initial,
   onSaved,
@@ -2321,6 +2224,7 @@ END MOVED */}
         character={store.characters.find(ch => ch.id === sheetCharId) ?? null}
         species={store.species}
         bonuses={store.bonuses}
+        globalEquivalencias={store.globalEquivalencias ?? {}}
       />
 </Tabs>
     </div>
