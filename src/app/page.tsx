@@ -977,21 +977,32 @@ function EvolutionEditor({ skills, links, onAdd }: { skills: Skill[]; links: Evo
     return m;
   }, [links]);
 
-  function Tree({ id }: { id: string }) {
-    const kids = childrenOf[id] || [];
+  function Tree({ id, visited = new Set<string>() }: { id: string; visited?: Set<string> }) {
+  if (visited.has(id)) {
+    // Evita ciclos; muestra un marcador opcional
     return (
-      <div className="ml-2">
-        <div className="flex items-center gap-2 text-sm">
-          <ChevronRight className="w-4 h-4"/>
-          <span className="font-medium truncate">{byId[id]?.nombre}</span>
-          <Badge className="rounded-2xl text-[10px]">{byId[id]?.tier}</Badge>
-        </div>
-        <div className="ml-4 border-l pl-2">
-          {kids.map((k) => <Tree key={k} id={k} />)}
-        </div>
-      </div>
+      <div className="ml-2 opacity-70 text-xs">↻ Ciclo detectado en {byId[id]?.nombre || id}</div>
     );
   }
+  const nextVisited = new Set(visited);
+  nextVisited.add(id);
+
+  const kids = childrenOf[id] || [];
+  return (
+    <div className="ml-2">
+      <div className="flex items-center gap-2 text-sm">
+        <ChevronRight className="w-4 h-4"/>
+        <span className="font-medium truncate">{byId[id]?.nombre}</span>
+        <Badge className="rounded-2xl text-[10px]">{byId[id]?.tier}</Badge>
+      </div>
+      <div className="ml-4 border-l pl-2">
+        {kids.map((k) => <Tree key={k} id={k} visited={nextVisited} />)}
+      </div>
+    </div>
+  );
+  
+}
+
 
   return (
     <div className="space-y-3">
@@ -1918,13 +1929,7 @@ async function deleteSkill(idToDelete: string) {
 }
 
 async function addEvo(from: string, to: string) {
-  const { error } = await supabase.from("skill_evo_links").insert({
-  id: crypto.randomUUID(),
-  from,
-  to
-});
-  if (error) alert("Error añadiendo relación: " + error.message);
-  await loadData();
+  await supabase.from("skill_evo_links").insert({ id: crypto.randomUUID(), from, to });
 }
 
 async function upsertBonus(b: Bonus) {
