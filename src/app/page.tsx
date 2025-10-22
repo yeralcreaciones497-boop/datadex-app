@@ -948,10 +948,29 @@ function SkillForm({ onSubmit, initial }: { onSubmit: (s: Skill) => void; initia
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
 
   function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const base: Skill = { id: initial?.id ?? uid("skill"), nombre, nivel, nivelMax, incremento, clase, tier, definicion };
-    onSubmit(base);
-  }
+  e.preventDefault();
+  const base: Skill = {
+    id: initial?.id ?? uid("skill"),
+    nombre,
+    nivel,
+    nivelMax,
+    incremento,
+    clase,
+    tier,
+    definicion
+  };
+  
+  onSubmit(base);
+  setNombre("");
+  setNivel(1);
+  setNivelMax(10);
+  setIncremento("");
+  setClase("Activa");
+  setTier("F");
+  setDefinicion("");
+  setSelectedCharacter(null);
+}
+
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
