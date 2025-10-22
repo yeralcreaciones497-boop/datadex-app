@@ -75,6 +75,8 @@ type Skill = {
   tier: Tier;
   definicion: string;
   personajes?: string[];
+  tags?: SkillTag[];
+  damage?: DamageProfile;
 };
 
 type EvoLink = { from: string; to: string };
@@ -136,6 +138,44 @@ const GLOBAL_EQUIVALENCIAS: Record<string, any> = {
   }
 };
 
+  export type SkillTag = {
+  clave: string;                 // "ocultacion", "camuflaje_audio", etc.
+  basePorcentaje: number;        // % en nivel 1 (ej: 20)
+  porcentajePorNivel: number;    // +% por nivel adicional (ej: 2)
+  maxPorcentaje?: number;        // tope opcional (ej: 60)
+  notas?: string;                // flavor/condiciones (opcional)
+};
+
+// --- Daño base por tramos ---
+export type DamageStepMode = "CadaN" | "Hitos";
+
+export type DamageStepTable = {
+  nivel: number;                 // nivel desde el que aplica
+  suma?: number;                 // +X acumulativo desde ese nivel
+  override?: number;             // fija el daño exacto desde ese nivel
+};
+
+export type DamageProfile = {
+  base: number;                  // daño base en nivel 1
+  modo: DamageStepMode;          // "CadaN" | "Hitos"
+  cadaN?: {
+    n: number;                   // cada N niveles…
+    suma: number;                // …añadir +suma
+    maxStacks?: number;          // tope de stacks (opcional)
+  };
+  hitos?: DamageStepTable[];     // tabla de hitos/overrides
+  tope?: number;                 // techo opcional
+  notas?: string;                // flavor (opcional)
+};
+
+// --- Extiende tu Skill (añade estas dos líneas) ---
+declare global {
+  type Skill = {
+    // ...tus campos actuales
+    tags?: SkillTag[];           // NUEVO
+    damage?: DamageProfile;      // NUEVO
+  };
+}
 
 const EMPTY_STORE: Store = { skills:[], evoLinks:[], characters:[], bonuses:[], extraStats:[], species:[] };
 
@@ -306,6 +346,42 @@ function Section({ title, children, actions }: { title: string; children: React.
     </Card>
   );
 }
+
+  // ---- Tags porcentuales ----
+export function calcSkillTagValue(tag: SkillTag, nivel: number) {
+  const n = Math.max(1, nivel);
+  const val = (tag.basePorcentaje || 0) + (tag.porcentajePorNivel || 0) * (n - 1);
+  return tag.maxPorcentaje != null ? Math.min(val, tag.maxPorcentaje) : val;
+}
+
+// ---- Daño por tramos ----
+export function calcDamageCadaN(d: DamageProfile, nivel: number) {
+  const base = d.base || 0;
+  const each = d.cadaN;
+  if (!each) return base;
+  const stacks = Math.max(0, Math.floor((Math.max(1, nivel) - 1) / Math.max(1, each.n)));
+  const aplicados = each.maxStacks != null ? Math.min(stacks, each.maxStacks) : stacks;
+  const val = base + aplicados * (each.suma || 0);
+  return d.tope != null ? Math.min(val, d.tope) : val;
+}
+
+export function calcDamageHitos(d: DamageProfile, nivel: number) {
+  const base = d.base || 0;
+  const list = (d.hitos ?? []).slice().sort((a,b) => a.nivel - b.nivel);
+  let val = base;
+  for (const h of list) {
+    if (nivel < h.nivel) break;
+    if (typeof h.override === "number") val = h.override;
+    if (typeof h.suma === "number") val += h.suma;
+  }
+  return d.tope != null ? Math.min(val, d.tope) : val;
+}
+
+export function calcSkillDamage(d: DamageProfile | undefined, nivel: number) {
+  if (!d) return undefined;
+  return d.modo === "CadaN" ? calcDamageCadaN(d, nivel) : calcDamageHitos(d, nivel);
+}
+
 
 async function loadConfigExtraStats(): Promise<string[]> {
   const { data, error } = await supabase.from("app_config").select("data").eq("id", "global").single();
@@ -720,6 +796,88 @@ function MultiTargetsEditor({
   );
 }
 
+  function TagEffectsEditor({
+  initialTags = [],
+  nivelPreview = 1,
+  onChange,
+  max = 10,
+}: {
+  initialTags?: SkillTag[];
+  nivelPreview: number;
+  onChange?: (rows: SkillTag[]) => void;
+  max?: number;
+}) {
+  const [rows, setRows] = React.useState<SkillTag[]>(
+    Array.isArray(initialTags) ? initialTags.slice(0, max) : []
+  );
+
+  React.useEffect(() => { onChange?.(rows); }, [rows, onChange]);
+
+  function addRow() {
+    if (rows.length >= max) return;
+    setRows(prev => [...prev, {
+      clave: "ocultacion",
+      basePorcentaje: 20,
+      porcentajePorNivel: 2,
+      maxPorcentaje: undefined,
+      notas: ""
+    }]);
+  }
+  function updateRow(i: number, patch: Partial<SkillTag>) {
+    setRows(prev => prev.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+  }
+  function removeRow(i: number) { setRows(prev => prev.filter((_, idx) => idx !== i)); }
+
+  return (
+    <div className="space-y-2">
+      {rows.map((r, i) => {
+        const preview = calcSkillTagValue(r, nivelPreview);
+        return (
+          <div key={i} className="grid grid-cols-12 gap-2 items-end border-b pb-2">
+            <div className="col-span-3">
+              <Label>Clave</Label>
+              <Input value={r.clave}
+                onChange={(e)=>updateRow(i,{ clave: e.target.value.trim() })}
+                placeholder="ocultacion / camuflaje / audio_mute"/>
+            </div>
+            <div className="col-span-2">
+              <Label>% base (lvl 1)</Label>
+              <Input type="number" inputMode="numeric" value={r.basePorcentaje}
+                onChange={(e)=>updateRow(i,{ basePorcentaje: parseFloat(e.target.value||"0") })}/>
+            </div>
+            <div className="col-span-2">
+              <Label>% por nivel</Label>
+              <Input type="number" inputMode="numeric" value={r.porcentajePorNivel}
+                onChange={(e)=>updateRow(i,{ porcentajePorNivel: parseFloat(e.target.value||"0") })}/>
+            </div>
+            <div className="col-span-2">
+              <Label>Tope (opcional)</Label>
+              <Input type="number" inputMode="numeric" value={r.maxPorcentaje ?? ""}
+                onChange={(e)=>{
+                  const v = e.target.value === "" ? undefined : parseFloat(e.target.value||"0");
+                  updateRow(i,{ maxPorcentaje: v });
+                }}/>
+            </div>
+            <div className="col-span-2">
+              <Label>Preview</Label>
+              <div className="text-sm font-medium">{preview}% @lvl {nivelPreview}</div>
+              <div className="text-[11px] opacity-70">({r.basePorcentaje} + {r.porcentajePorNivel}×(lvl-1))</div>
+            </div>
+            <div className="col-span-1">
+              <Button type="button" variant="destructive" onClick={()=>removeRow(i)} className="w-full">Quitar</Button>
+            </div>
+            <div className="col-span-12 -mt-1">
+              <Label>Notas (opcional)</Label>
+              <Input value={r.notas ?? ""} onChange={(e)=>updateRow(i,{ notas: e.target.value })}/>
+            </div>
+          </div>
+        );
+      })}
+      <Button type="button" variant="outline" onClick={addRow}>Añadir tag (+%)</Button>
+    </div>
+  );
+}
+
 
 function Pill({ children }: { children: React.ReactNode }) {
   return <Badge className="rounded-2xl px-2 py-1 text-[11px] md:text-xs whitespace-nowrap">{children}</Badge>;
@@ -946,30 +1104,32 @@ function SkillForm({ onSubmit, initial }: { onSubmit: (s: Skill) => void; initia
   const [tier, setTier] = useState<Tier>(initial?.tier ?? "F");
   const [definicion, setDefinicion] = useState(initial?.definicion ?? "");
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
+  // NUEVO:
+  const [tags, setTags] = useState<SkillTag[]>(initial?.tags ?? []);
+  const [damage, setDamage] = useState<DamageProfile | undefined>(initial?.damage);
+  const [nivelPreview, setNivelPreview] = useState<number>(initial?.nivel ?? 1);
+
 
   function handleSubmit(e: React.FormEvent) {
   e.preventDefault();
   const base: Skill = {
     id: initial?.id ?? uid("skill"),
-    nombre,
-    nivel,
-    nivelMax,
-    incremento,
-    clase,
-    tier,
-    definicion
+    nombre, nivel, nivelMax,
+    incremento, clase, tier, definicion,
+    // NUEVO:
+    tags,
+    damage
   };
-  
   onSubmit(base);
-  setNombre("");
-  setNivel(1);
-  setNivelMax(10);
-  setIncremento("");
-  setClase("Activa");
-  setTier("F");
-  setDefinicion("");
-  setSelectedCharacter(null);
+
+  // Limpieza (mantén tu reset actual y añade estos):
+  setNombre(""); setNivel(1); setNivelMax(10);
+  setIncremento(""); setClase("Activa"); setTier("F");
+  setDefinicion(""); 
+  // NUEVO:
+  setTags([]); setDamage(undefined); setNivelPreview(1);
 }
+
 
 
   return (
@@ -993,17 +1153,171 @@ function SkillForm({ onSubmit, initial }: { onSubmit: (s: Skill) => void; initia
         </Field>
       </div>
       <Field label="Definición"><Textarea value={definicion} onChange={(e) => setDefinicion(e.target.value)} placeholder="Breve explicación de la habilidad" className="min-h-[96px]"/></Field>
+      <Section title="Tags porcentuales (escala por nivel)">
+  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+    <Field label="Nivel de preview">
+      <Input
+        type="number"
+        inputMode="numeric"
+        min={1}
+        value={nivelPreview}
+        onChange={(e)=>setNivelPreview(Math.max(1, parseInt(e.target.value||"1")))}
+      />
+    </Field>
+  </div>
+
+  <TagEffectsEditor
+    initialTags={tags}
+    nivelPreview={nivelPreview}
+    onChange={setTags}
+  />
+</Section>
+<Section title="Daño base (por tramos)">
+  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+    <Field label="Modo">
+      <Select
+        value={damage?.modo ?? "CadaN"}
+        onValueChange={(v)=>setDamage(prev=>({ ...(prev ?? { base: 0 }), modo: v as DamageStepMode }))}
+      >
+        <SelectTrigger><SelectValue/></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="CadaN">Cada N niveles</SelectItem>
+          <SelectItem value="Hitos">Hitos</SelectItem>
+        </SelectContent>
+      </Select>
+    </Field>
+
+    <Field label="Daño base (lvl 1)">
+      <Input type="number" inputMode="numeric"
+        value={damage?.base ?? 0}
+        onChange={(e)=>setDamage(prev=>({ ...(prev ?? { modo: "CadaN" }), base: parseFloat(e.target.value||"0") }))}
+      />
+    </Field>
+
+    <Field label="Nivel preview">
+      <Input type="number" min={1} value={nivelPreview}
+        onChange={(e)=>setNivelPreview(Math.max(1, parseInt(e.target.value||"1")))}
+      />
+    </Field>
+  </div>
+
+  { (damage?.modo ?? "CadaN") === "CadaN" ? (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-2">
+      <Field label="Cada N niveles">
+        <Input type="number" inputMode="numeric"
+          value={damage?.cadaN?.n ?? 5}
+          onChange={(e)=>setDamage(prev=>({
+            ...(prev ?? { base:0, modo:"CadaN" }),
+            cadaN: { ...(prev?.cadaN ?? { suma: 0 }), n: Math.max(1, parseInt(e.target.value||"1")) }
+          }))}
+        />
+      </Field>
+      <Field label="+ Suma por tramo">
+        <Input type="number" inputMode="numeric"
+          value={damage?.cadaN?.suma ?? 10}
+          onChange={(e)=>setDamage(prev=>({
+            ...(prev ?? { base:0, modo:"CadaN" }),
+            cadaN: { ...(prev?.cadaN ?? { n: 5 }), suma: parseFloat(e.target.value||"0") }
+          }))}
+        />
+      </Field>
+      <Field label="Máx stacks (opcional)">
+        <Input type="number" inputMode="numeric"
+          value={damage?.cadaN?.maxStacks ?? ""}
+          onChange={(e)=>setDamage(prev=>{
+            const v = e.target.value === "" ? undefined : Math.max(0, parseInt(e.target.value||"0"));
+            return { ...(prev ?? { base:0, modo:"CadaN" }), cadaN: { ...(prev?.cadaN ?? { n:5, suma:10 }), maxStacks: v } };
+          })}
+        />
+      </Field>
+    </div>
+  ) : (
+    <div className="space-y-2 mt-2">
+      {(damage?.hitos ?? []).map((h,i)=>(
+        <div key={i} className="grid grid-cols-12 gap-2 items-end">
+          <div className="col-span-3">
+            <Label>Nivel</Label>
+            <Input type="number" value={h.nivel}
+              onChange={(e)=>{
+                const nivel = Math.max(1, parseInt(e.target.value||"1"));
+                setDamage(prev=>{
+                  const hit = (prev?.hitos ?? []).slice(); hit[i] = { ...hit[i], nivel };
+                  return { ...(prev ?? { base:0, modo:"Hitos" }), hitos: hit };
+                });
+              }}/>
+          </div>
+          <div className="col-span-4">
+            <Label>+ Suma</Label>
+            <Input type="number" value={h.suma ?? ""}
+              onChange={(e)=>{
+                const suma = e.target.value === "" ? undefined : parseFloat(e.target.value||"0");
+                setDamage(prev=>{
+                  const hit = (prev?.hitos ?? []).slice();
+                  hit[i] = { ...hit[i], suma, override: h.override && suma!=null ? undefined : h.override };
+                  return { ...(prev ?? { base:0, modo:"Hitos" }), hitos: hit };
+                });
+              }}/>
+          </div>
+          <div className="col-span-4">
+            <Label>Override</Label>
+            <Input type="number" value={h.override ?? ""}
+              onChange={(e)=>{
+                const override = e.target.value === "" ? undefined : parseFloat(e.target.value||"0");
+                setDamage(prev=>{
+                  const hit = (prev?.hitos ?? []).slice();
+                  hit[i] = { ...hit[i], override, suma: h.suma && override!=null ? undefined : h.suma };
+                  return { ...(prev ?? { base:0, modo:"Hitos" }), hitos: hit };
+                });
+              }}/>
+          </div>
+          <div className="col-span-1">
+            <Button type="button" variant="destructive"
+              onClick={()=>setDamage(prev=>{
+                const hit = (prev?.hitos ?? []).slice(); hit.splice(i,1);
+                return { ...(prev ?? { base:0, modo:"Hitos" }), hitos: hit };
+              })}>Quitar</Button>
+          </div>
+        </div>
+      ))}
+      <Button type="button" variant="outline"
+        onClick={()=>setDamage(prev=>{
+          const hitos = (prev?.hitos ?? []).slice();
+          hitos.push({ nivel: 5, suma: 10 });
+          return { ...(prev ?? { base:0, modo:"Hitos" }), hitos };
+        })}>
+        Añadir hito
+      </Button>
+    </div>
+  )}
+
+  <div className="mt-3 text-sm">
+    <strong>Preview:</strong>{" "}
+    {(() => {
+      const val = calcSkillDamage(damage, nivelPreview);
+      return val != null ? `${val} de daño base @ nivel ${nivelPreview}` : "—";
+    })()}
+  </div>
+</Section>
+
       <div className="flex justify-end gap-2"><Button type="submit" className="gap-2"><Save className="w-4 h-4"/>Guardar habilidad</Button></div>
     </form>
   );
 }
 
 function SkillRow({ s, onEdit, onDelete }: { s: Skill; onEdit: () => void; onDelete: () => void }) {
+  const dmgPreview = s.damage ? calcSkillDamage(s.damage, s.nivel) : undefined;
+  const tagPreview = (s.tags ?? [])
+    .slice(0, 2)
+    .map(t => `${t.clave} +${calcSkillTagValue(t, s.nivel)}%`)
+    .join(" · ");
+
   return (
     <div className="grid grid-cols-12 items-center gap-2 py-2 border-b">
       <div className="col-span-12 sm:col-span-6">
         <div className="font-medium truncate" title={s.nombre}>{s.nombre}</div>
-        <div className="text-xs opacity-70 line-clamp-1">{s.definicion}</div>
+        <div className="text-xs opacity-70 line-clamp-1">
+          {dmgPreview != null ? `Daño base: ${dmgPreview}` : (tagPreview || s.definicion)}
+        </div>
       </div>
       <div className="col-span-6 sm:col-span-3 flex gap-2"><Pill>{s.clase}</Pill><Pill>{s.tier}</Pill></div>
       <div className="col-span-3 sm:col-span-2 text-sm">{s.nivel}/{s.nivelMax}</div>
@@ -1014,6 +1328,7 @@ function SkillRow({ s, onEdit, onDelete }: { s: Skill; onEdit: () => void; onDel
     </div>
   );
 }
+
 
 function EvolutionEditor({ skills, links, onAdd }: { skills: Skill[]; links: EvoLink[]; onAdd: (from: string, to: string) => void }) {
   const [from, setFrom] = useState<string>("");
