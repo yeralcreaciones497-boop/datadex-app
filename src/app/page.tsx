@@ -106,6 +106,7 @@ type Store = {
   species: Species[];
   globalEquivalencias?: Record<string, any>;
 };
+
 // === Equivalencias globales por defecto (se aplican si la especie no define propias) ===
 const GLOBAL_EQUIVALENCIAS: Record<string, any> = {
   "Fisicas": {
@@ -1374,7 +1375,6 @@ function EvolutionEditor({ skills, links, onAdd }: { skills: Skill[]; links: Evo
   }
   const nextVisited = new Set(visited);
   nextVisited.add(id);
-
   const kids = childrenOf[id] || [];
   return (
     <div className="ml-2">
@@ -1390,7 +1390,6 @@ function EvolutionEditor({ skills, links, onAdd }: { skills: Skill[]; links: Evo
   );
   
 }
-
 
   return (
     <div className="space-y-3">
@@ -2291,6 +2290,67 @@ export default function Page() {
 	const [sheetOpen, setSheetOpen] = useState(false);
 	const [sheetCharId, setSheetCharId] = useState<string | null>(null);
   const [editingSpeciesId, setEditingSpeciesId] = useState<string | null>(null);
+  // === Evolutions: add / remove ===
+  // === Load store on mount ===
+React.useEffect(() => {
+  let cancelled = false;
+  (async () => {
+    const { data, error } = await supabase
+      .from("app_data")
+      .select("data")
+      .eq("id", "store")
+      .single();
+
+    if (cancelled) return;
+
+    if (!error && data?.data) {
+      // Merge por si el schema cambió (e.g., nuevos campos)
+      setStore(prev => ({ ...EMPTY_STORE, ...data.data }));
+    } else {
+      // Inicializa una fila para evitar 404 futuros
+      await supabase.from("app_data").upsert({ id: "store", data: EMPTY_STORE });
+      setStore(EMPTY_STORE);
+    }
+  })();
+
+  return () => { cancelled = true; };
+}, []);
+
+function addEvolution(from: string, to: string) {
+  setStore(prev => {
+    if (!from || !to || from === to) return prev;
+
+    // Validar existencia de skills
+    const skillIds = new Set(prev.skills.map(s => s.id));
+    if (!skillIds.has(from) || !skillIds.has(to)) return prev;
+
+    // Evitar duplicados
+    if (prev.evoLinks.some(l => l.from === from && l.to === to)) return prev;
+
+    // (Opcional) detectar ciclo rápido: si ya existe camino to -> ... -> from
+    // Puedes omitirlo si confías en la advertencia visual del árbol.
+    const children: Record<string, string[]> =
+      prev.evoLinks.reduce((m, l) => { (m[l.from] ||= []).push(l.to); return m; }, {} as Record<string, string[]>);
+    const seen = new Set<string>();
+    const stack = [to];
+    while (stack.length) {
+      const cur = stack.pop()!;
+      if (cur === from) return prev; // abortar: crearía ciclo
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      (children[cur] || []).forEach(n => stack.push(n));
+    }
+
+    return { ...prev, evoLinks: [...prev.evoLinks, { from, to }] };
+  });
+}
+
+function removeEvolution(from: string, to: string) {
+  setStore(prev => ({
+    ...prev,
+    evoLinks: prev.evoLinks.filter(l => !(l.from === from && l.to === to))
+  }));
+}
 
  const loadData = useCallback(async () => {
   try {
@@ -2339,10 +2399,15 @@ export default function Page() {
 }
 
 
-async function deleteSkill(idToDelete: string) {
-  const { error } = await supabase.from("skills").delete().eq("id", idToDelete);
-  if (error) alert("Error eliminando habilidad: " + error.message);
-  setStore(prev => ({ ...prev, skills: prev.skills.filter(s => s.id !== idToDelete) }));
+async function deleteSkill(skillId: string) {
+  setStore(prev => {
+    const nextSkills = prev.skills.filter(s => s.id !== skillId);
+    const nextLinks  = prev.evoLinks.filter(l => l.from !== skillId && l.to !== skillId);
+    return { ...prev, skills: nextSkills, evoLinks: nextLinks };
+  });
+}
+async function saveStore() {
+  await supabase.from("app_data").upsert({ id: "store", data: store });
 }
 
 async function addEvo(from: string, to: string) {
@@ -2464,7 +2529,11 @@ const speciesStatOptions = React.useMemo<string[]>(
 />
           </Section>
           <Section title="Árbol de evolución">
-            <EvolutionEditor skills={store.skills} links={store.evoLinks} onAdd={addEvo} />
+            <EvolutionEditor
+              skills={store.skills}
+              links={store.evoLinks}
+              onAdd={addEvolution}
+            />
           </Section>
           <Section title={`Listado de habilidades (${store.skills.length})`}>
             <div className="divide-y">
