@@ -811,7 +811,9 @@ function MultiTargetsEditor({
     Array.isArray(initialTags) ? initialTags.slice(0, max) : []
   );
 
-  React.useEffect(() => { onChange?.(rows); }, [rows, onChange]);
+  React.useEffect(() => {
+  setRows(Array.isArray(initialTags) ? initialTags.slice(0, max) : []);
+}, [initialTags, max]);
 
   function addRow() {
     if (rows.length >= max) return;
@@ -1121,6 +1123,20 @@ function SkillForm({ onSubmit, initial }: { onSubmit: (s: Skill) => void; initia
     damage
   };
   onSubmit(base);
+  useEffect(() => {
+  setNombre(initial?.nombre ?? "");
+  setNivel(initial?.nivel ?? 1);
+  setNivelMax(initial?.nivelMax ?? 10);
+  setIncremento(initial?.incremento ?? "");
+  setClase(initial?.clase ?? "Activa");
+  setTier(initial?.tier ?? "F");
+  setDefinicion(initial?.definicion ?? "");
+
+  // NUEVO:
+  setTags(initial?.tags ?? []);
+  setDamage(initial?.damage);
+  setNivelPreview(initial?.nivel ?? 1);
+}, [initial]);
 
   // Limpieza (mantén tu reset actual y añade estos):
   setNombre(""); setNivel(1); setNivelMax(10);
@@ -2441,7 +2457,11 @@ const speciesStatOptions = React.useMemo<string[]>(
         {/* HABILIDADES */}
         <TabsContent value="skills" className="mt-4 space-y-3">
           <Section title={editingSkill ? "Editar habilidad" : "Nueva habilidad"} actions={editingSkill && <Button variant="outline" onClick={()=>setEditingSkillId(null)}>Cancelar</Button>}>
-            <SkillForm initial={editingSkill ?? undefined} onSubmit={(s)=>{ setEditingSkillId(null); upsertSkill(s); }} />
+            <SkillForm
+  key={editingSkill?.id ?? "new"}
+  initial={editingSkill ?? undefined}
+  onSubmit={(s)=>{ setEditingSkillId(null); upsertSkill(s); }}
+/>
           </Section>
           <Section title="Árbol de evolución">
             <EvolutionEditor skills={store.skills} links={store.evoLinks} onAdd={addEvo} />
