@@ -2458,6 +2458,8 @@ async function addEvo(from: string, to: string) {
   await loadData();
 }
 
+
+
 async function upsertBonus(b: Bonus) {
   const rowId = isUUID(b.id) ? b.id : crypto.randomUUID();
   const { error } = await supabase.from("bonuses").upsert({ ...b, id: rowId });
@@ -2716,6 +2718,44 @@ const speciesStatOptions = React.useMemo<string[]>(
       nivelMax,
       objetivos, // multi objetivo
     };
+    // --- Normalización y validación robusta ---
+const norm = (s: unknown) => String(s ?? "").trim().toLowerCase();
+
+// Considera solo filas válidas (con stat y algún valor > 0)
+const objetivosValidos = objetivos.filter((o) => {
+  if (!o) return false;
+  const hasStat = !!String(o.stat ?? "").trim();
+  const hasValor =
+    (typeof o.cantidadPorNivel === "number" && o.cantidadPorNivel > 0) ||
+    (typeof (o as any).basePorcentaje === "number" && (o as any).basePorcentaje > 0);
+  return hasStat && hasValor;
+});
+
+// Si no queda ninguna fila válida, avisa
+if (objetivosValidos.length === 0) {
+  return alert("Añade al menos 1 objetivo con valor > 0 (puntos o % base).");
+}
+
+// Revisa duplicados por estadística (normalizada)
+const counts = new Map<string, number>();
+for (const o of objetivosValidos) {
+  const key = norm(o.stat);
+  counts.set(key, (counts.get(key) ?? 0) + 1);
+}
+
+// Detecta cuáles están duplicadas (para explicar mejor el error)
+const duplicadas: string[] = [];
+for (const [k, c] of counts) {
+  if (c > 1) duplicadas.push(k);
+}
+
+if (duplicadas.length > 0) {
+  return alert(
+    "Cada objetivo debe usar una estadística distinta.\n" +
+    "Repetidas: " + duplicadas.join(", ")
+  );
+}
+// --- Fin validación robusta ---
 
     setEditingBonusId(null);
     upsertBonus(out);
