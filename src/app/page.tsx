@@ -804,8 +804,8 @@ function MultiTargetsEditor({
   max = 10,
 }: {
   initialTags?: SkillTag[];
-  nivelPreview: number;
-  onChange?: (rows: SkillTag[]) => void;
+  nivelPreview?: number;
+  onChange?: (tags: SkillTag[]) => void;
   max?: number;
 }) {
   const [rows, setRows] = React.useState<SkillTag[]>(
@@ -813,28 +813,36 @@ function MultiTargetsEditor({
   );
 
   React.useEffect(() => {
-  setRows(Array.isArray(initialTags) ? initialTags.slice(0, max) : []);
-}, [initialTags, max]);
+    const next = Array.isArray(initialTags) ? initialTags.slice(0, max) : [];
+    // compara superficialmente para evitar setState inútil
+    const same =
+      next.length === rows.length &&
+      next.every((t, i) => JSON.stringify(t) === JSON.stringify(rows[i]));
+    if (!same) setRows(next);
+  }, [initialTags, max]); 
 
-  React.useEffect(() => {
-    onChange?.(rows);
-  }, [rows, onChange]);
-  
+  function publish(next: SkillTag[]) {
+    setRows(next);
+    onChange?.(next);
+  }
+
   function addRow() {
     if (rows.length >= max) return;
-    setRows(prev => [...prev, {
-      clave: "ocultacion",
-      basePorcentaje: 20,
-      porcentajePorNivel: 2,
-      maxPorcentaje: undefined,
-      notas: ""
-    }]);
+    publish([
+      ...rows,
+      { clave: "ocultacion", basePorcentaje: 20, porcentajePorNivel: 2, maxPorcentaje: undefined, notas: "" },
+    ]);
   }
-  function updateRow(i: number, patch: Partial<SkillTag>) {
-    setRows(prev => prev.map((r, idx) => idx === i ? { ...r, ...patch } : r));
-  }
-  function removeRow(i: number) { setRows(prev => prev.filter((_, idx) => idx !== i)); }
 
+  function updateRow(i: number, patch: Partial<SkillTag>) {
+    const next = rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r));
+    publish(next);
+  }
+
+  function removeRow(i: number) {
+    const next = rows.filter((_, idx) => idx !== i);
+    publish(next);
+  }
   return (
     <div className="space-y-2">
       {rows.map((r, i) => {
@@ -1188,10 +1196,10 @@ function SkillForm({ onSubmit, initial }: { onSubmit: (s: Skill) => void; initia
   </div>
 
   <TagEffectsEditor
-    initialTags={tags}
-    nivelPreview={nivelPreview}
-    onChange={setTags}
-  />
+  initialTags={tags}        // fuente de verdad en el padre
+  onChange={setTags}        // el hijo solo avisa cambios del usuario
+  nivelPreview={nivel}
+/>
 </Section>
 <Section title="Daño base (por tramos)">
   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
