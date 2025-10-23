@@ -2687,10 +2687,8 @@ const speciesStatOptions = React.useMemo<string[]>(
     stat: String(fd.get(`multi_stat_${i}`) ?? "Fuerza"),
     modo: String(fd.get(`multi_modo_${i}`) ?? "Puntos") as BonusMode,
     cantidadPorNivel: Math.max(0, parseFloat(String(fd.get(`multi_cantidad_${i}`) ?? "0"))),
-    basePorcentaje: (String(fd.get(`multi_modo_${i}`) ?? "Puntos") === "Porcentaje"
-      ? Math.max(0, parseFloat(String(fd.get(`multi_base_${i}`) ?? "0")))
-      : undefined),
   }))
+
   .filter((t) => t.cantidadPorNivel > 0)
   .slice(0, 5);
 
@@ -2733,10 +2731,11 @@ END MOVED */}
 
         {/* Editor dinámico (máx 5 filas) */}
           <MultiTargetsEditor
-  namePrefix="multi_"
-  initialTargets={(editingBonus?.objetivos ?? []) as any}
-  statsOptions={Array.from(new Set([...DEFAULT_STATS as any]))}
+         namePrefix="multi_"
+         initialTargets={(editingBonus?.objetivos ?? []) as any}
+         statsOptions={Array.from(new Set([...DEFAULT_STATS as any]))}
 />
+
 
 
                 {/* Preview simple por nivel (cliente) */}
