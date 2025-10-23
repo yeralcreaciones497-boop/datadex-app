@@ -713,7 +713,7 @@ function MultiTargetsEditor({
   function removeRow(i: number) {
     setRows((prev) => prev.filter((_, idx) => idx !== i));
   }
-
+  
   // Preview por nivel (suma local): puntos = n * lvl; % = (n/100) * lvl
   const [lvl, setLvl] = React.useState(1);
   React.useEffect(() => {
@@ -723,10 +723,16 @@ function MultiTargetsEditor({
     input.addEventListener("input", onChange);
     return () => input.removeEventListener("input", onChange);
   }, []);
+  const formEl = document.getElementById("bonusMultiForm") as HTMLFormElement | null;
+  if (!formEl) throw new Error("No se encontró el formulario de Bonificaciones (multi).");
+
+  const fd = new FormData(formEl);                   // ← defines fd aquí
+  const total = parseInt(String(fd.get("multi_count_rows") ?? "0"));
+
 
   return (
     <div className="space-y-2">
-      <input type="hidden" name="count_rows" value={rows.length} />
+      <input type="hidden" name="multi_count_rows" value={rows.length} />
       {rows.map((r, i) => (
         <div key={i} className="grid grid-cols-12 gap-2 items-end">
           <div className="col-span-5">
@@ -737,6 +743,7 @@ function MultiTargetsEditor({
                 updateRow(i, { stat: v });
                 const el = document.querySelector(`select[name='${namePrefix}stat_${i}']`) as HTMLSelectElement | null;
                 if (el) el.value = v;
+                const total = parseInt(String(fd.get("multi_count_rows") ?? "0"));
               }}
             >
               <SelectTrigger><SelectValue /></SelectTrigger>
