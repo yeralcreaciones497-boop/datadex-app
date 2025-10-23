@@ -2662,13 +2662,14 @@ const speciesStatOptions = React.useMemo<string[]>(
 
     const total = parseInt(String(fd.get("count_rows") ?? "0"));
     const objetivos = Array.from({ length: total })
-      .map((_, i) => ({
-        stat: String(fd.get(`stat_${i}`) ?? "Fuerza"),
-        modo: String(fd.get(`modo_${i}`) ?? "Puntos") as BonusMode,
-        cantidadPorNivel: Math.max(0, parseFloat(String(fd.get(`cantidad_${i}`) ?? "0"))),
-      }))
-      .filter((t) => t.cantidadPorNivel > 0)
-      .slice(0, 5);
+  .map((_, i) => ({
+    stat: String(fd.get(`multi_stat_${i}`) ?? "Fuerza"),
+    modo: String(fd.get(`multi_modo_${i}`) ?? "Puntos") as BonusMode,
+    cantidadPorNivel: Math.max(0, parseFloat(String(fd.get(`multi_cantidad_${i}`) ?? "0"))),
+  }))
+  .filter((t) => t.cantidadPorNivel > 0)
+  .slice(0, 5);
+
 
     if (!nombre.trim()) return alert("Ponle un nombre a la bonificación.");
     if (objetivos.length === 0) return alert("Añade al menos 1 objetivo.");
@@ -2708,10 +2709,11 @@ END MOVED */}
 
         {/* Editor dinámico (máx 5 filas) */}
           <MultiTargetsEditor
-                 namePrefix=""
-                 initialTargets={(editingBonus?.objetivos ?? []) as any}
-                statsOptions={Array.from(new Set([...DEFAULT_STATS as any]))}
-              />
+  namePrefix="multi_"
+  initialTargets={(editingBonus?.objetivos ?? []) as any}
+  statsOptions={Array.from(new Set([...DEFAULT_STATS as any]))}
+/>
+
 
                 {/* Preview simple por nivel (cliente) */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
@@ -2724,44 +2726,6 @@ END MOVED */}
           </div>
           </form>
 
-            {/* Formulario sencillo (legacy, un objetivo) */}
-            <form onSubmit={(e)=>{
-              e.preventDefault();
-              const fd = new FormData(e.currentTarget as HTMLFormElement);
-              const out: Bonus = {
-                id: editingBonus?.id ?? uid("bonus"),
-                nombre: String(fd.get("nombre") ?? ""),
-                descripcion: String(fd.get("descripcion") ?? ""),
-                objetivo: String(fd.get("objetivo") ?? "Fuerza"),
-                modo: String(fd.get("modo") ?? "Puntos") as BonusMode,
-                cantidadPorNivel: parseFloat(String(fd.get("cantidad") ?? "1")),
-                nivelMax: parseInt(String(fd.get("nivelMax") ?? "5")),
-              };
-              setEditingBonusId(null);
-              upsertBonus(out);
-            }} className="space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Field label="Nombre"><Input name="nombre" defaultValue={editingBonus?.nombre ?? ""}/></Field>
-                <Field label="Objetivo">
-                  <Select defaultValue={String(editingBonus?.objetivo ?? "Fuerza")} name="objetivo" onValueChange={(v)=>{ const el = (document.querySelector('select[name=\"objetivo\"]') as any); if (el) el.value = v; }}>
-                    <SelectTrigger><SelectValue/></SelectTrigger>
-                    <SelectContent className="max-h-60 overflow-auto">
-                      {Array.from(new Set([...DEFAULT_STATS as any])).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field label="Modo">
-                  <Select defaultValue={String(editingBonus?.modo ?? "Puntos")} name="modo" onValueChange={(v)=>{ const el = (document.querySelector('select[name=\"modo\"]') as any); if (el) el.value = v; }}>
-                    <SelectTrigger><SelectValue/></SelectTrigger>
-                    <SelectContent><SelectItem value="Puntos">Puntos</SelectItem><SelectItem value="Porcentaje">Porcentaje</SelectItem></SelectContent>
-                  </Select>
-                </Field>
-                <Field label="Cant. por nivel"><Input name="cantidad" type="number" defaultValue={(editingBonus as any)?.cantidadPorNivel ?? 1}/></Field>
-                <Field label="Nivel Máx"><Input name="nivelMax" type="number" defaultValue={editingBonus?.nivelMax ?? 5}/></Field>
-              </div>
-              <Field label="Descripción"><Textarea name="descripcion" defaultValue={editingBonus?.descripcion ?? ""}/></Field>
-              <div className="flex justify-end"><Button type="submit" className="gap-2"><Save className="w-4 h-4"/>Guardar bonificación</Button></div>
-            </form>
           <Section title={`Listado de bonificaciones (${store.bonuses.length})`}>
             <div className="divide-y">
               {store.bonuses.map(b => (
