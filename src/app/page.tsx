@@ -2748,6 +2748,11 @@ END MOVED */}
            Consejo: el preview muestra cuánto sumaría cada objetivo a ese nivel (no se guarda).
           </div>
           </div>
+          <div className="flex justify-end mt-3">
+  <Button type="submit" className="gap-2">
+    <Save className="w-4 h-4" /> Guardar bonificación (multi)
+  </Button>
+</div>
           </form>
 
           <Section title={`Listado de bonificaciones (${store.bonuses.length})`}>
