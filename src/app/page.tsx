@@ -724,9 +724,12 @@ function MultiTargetsEditor({
     return () => input.removeEventListener("input", onChange);
   }, []);
   const formEl = document.getElementById("bonusMultiForm") as HTMLFormElement | null;
-  if (!formEl) throw new Error("No se encontró el formulario de Bonificaciones (multi).");
-
-  const fd = new FormData(formEl);                   // ← defines fd aquí
+  if (!formEl) {
+    console.warn("Formulario multi no está montado todavía.");
+    return; // o reintenta más tarde, pero NO lances error
+  }
+  const fd = new FormData(formEl);
+                   // ← defines fd aquí
   const total = parseInt(String(fd.get("multi_count_rows") ?? "0"));
 
 
@@ -2680,15 +2683,15 @@ const speciesStatOptions = React.useMemo<string[]>(
 {/* moved: premature </TabsContent> for bonuses */}
 
 <form
-  onSubmit={(e) => {
+  id="bonusMultiForm"
+  onSubmit={(e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const fd = new FormData(e.currentTarget as HTMLFormElement);
+    const fd = new FormData(e.currentTarget); // ← usa SIEMPRE e.currentTarget
+    const total = parseInt(String(fd.get("multi_count_rows") ?? "0"));
     const nombre = String(fd.get("nombre_multi") ?? "");
     const descripcion = String(fd.get("descripcion_multi") ?? "");
     const nivelMax = Math.max(1, parseInt(String(fd.get("nivelMax_multi") ?? "5")));
     const nivelPreview = Math.max(1, parseInt(String(fd.get("nivelPreview_multi") ?? "1")));
-
-    const total = parseInt(String(fd.get("count_rows") ?? "0"));
     const objetivos = Array.from({ length: total })
   .map((_, i) => ({
     stat: String(fd.get(`multi_stat_${i}`) ?? "Fuerza"),
@@ -2735,14 +2738,14 @@ END MOVED */}
     <Field label="Nivel Máx"><Input name="nivelMax_multi" type="number" min={1} defaultValue={editingBonus?.objetivos?.length ? (editingBonus?.nivelMax ?? 5) : 5} /></Field>
     <Field label="Descripción"><Input name="descripcion_multi" defaultValue={editingBonus?.objetivos?.length ? editingBonus?.descripcion ?? "" : ""} /></Field>
   </div>
-
+  
         {/* Editor dinámico (máx 5 filas) */}
           <MultiTargetsEditor
          namePrefix="multi_"
          initialTargets={(editingBonus?.objetivos ?? []) as any}
          statsOptions={Array.from(new Set([...DEFAULT_STATS as any]))}
 />
-
+  
 
 
                 {/* Preview simple por nivel (cliente) */}
