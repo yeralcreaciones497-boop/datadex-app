@@ -816,6 +816,10 @@ function MultiTargetsEditor({
   setRows(Array.isArray(initialTags) ? initialTags.slice(0, max) : []);
 }, [initialTags, max]);
 
+  React.useEffect(() => {
+    onChange?.(rows);
+  }, [rows, onChange]);
+  
   function addRow() {
     if (rows.length >= max) return;
     setRows(prev => [...prev, {
