@@ -48,6 +48,7 @@ type BonusTarget = {
   stat: StatKey;
   modo: BonusMode;
   cantidadPorNivel: number; 
+  basePorcentaje?: number;
 };
 
 // Bonificaciones (pueden ser legacy o multi)
@@ -170,14 +171,6 @@ export type DamageProfile = {
 };
 
 // --- Extiende tu Skill (añade estas dos líneas) ---
-declare global {
-  type Skill = {
-    // ...tus campos actuales
-    tags?: SkillTag[];           // NUEVO
-    damage?: DamageProfile;      // NUEVO
-  };
-}
-
 const EMPTY_STORE: Store = { skills:[], evoLinks:[], characters:[], bonuses:[], extraStats:[], species:[] };
 
 /* ================= Utils ================= */
@@ -254,10 +247,20 @@ function sumBonusesForStat(
     // MULTI: objetivos[]
     if (Array.isArray(b.objetivos) && b.objetivos.length) {
       for (const t of b.objetivos) {
-        if (t.stat !== stat) continue;
-        const n = (t.cantidadPorNivel ?? 0) * lvl;
-        if (t.modo === "Puntos") flat += n;
-        else if (t.modo === "Porcentaje") percent += n; // en puntos de %
+        // dentro del loop MULTI: objetivos[]
+if (t.stat !== stat) continue;
+const n = (t.cantidadPorNivel ?? 0) * lvl;
+if (t.modo === "Puntos") {
+  flat += n;
+} else if (t.modo === "Porcentaje") {
+  // porcentaje por nivel
+  percent += n;
+  // NUEVO: porcentaje base (si viene)
+  if (typeof t.basePorcentaje === "number") {
+    percent += t.basePorcentaje;
+  }
+}
+
       }
       continue;
     }
@@ -784,6 +787,23 @@ function MultiTargetsEditor({
           </div>
 
           <div className="col-span-1">
+          
+{r.modo === "Porcentaje" && (
+  <div className="col-span-3">
+    <Label>% base</Label>
+    <Input
+      type="number"
+      min={0}
+      name={`${namePrefix}base_${i}`}
+      defaultValue={(r as any).basePorcentaje ?? 0}
+      onChange={(e) => updateRow(i, { ...(r as any), basePorcentaje: Math.max(0, parseFloat(e.target.value || "0")) } as any)}
+    />
+    <div className="text-[11px] opacity-70 mt-1">
+      Se suma siempre (además del % por nivel).
+    </div>
+  </div>
+)}
+    
             <Button type="button" variant="destructive" onClick={() => removeRow(i)} className="w-full">
               Quitar
             </Button>
@@ -794,6 +814,7 @@ function MultiTargetsEditor({
         Añadir objetivo (máx 5)
       </Button>
     </div>
+    
   );
 }
 
@@ -2666,6 +2687,9 @@ const speciesStatOptions = React.useMemo<string[]>(
     stat: String(fd.get(`multi_stat_${i}`) ?? "Fuerza"),
     modo: String(fd.get(`multi_modo_${i}`) ?? "Puntos") as BonusMode,
     cantidadPorNivel: Math.max(0, parseFloat(String(fd.get(`multi_cantidad_${i}`) ?? "0"))),
+    basePorcentaje: (String(fd.get(`multi_modo_${i}`) ?? "Puntos") === "Porcentaje"
+      ? Math.max(0, parseFloat(String(fd.get(`multi_base_${i}`) ?? "0")))
+      : undefined),
   }))
   .filter((t) => t.cantidadPorNivel > 0)
   .slice(0, 5);
