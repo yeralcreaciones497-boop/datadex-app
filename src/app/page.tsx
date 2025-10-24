@@ -2591,10 +2591,11 @@ const speciesStatOptions = React.useMemo<string[]>(
           </Section>
           <Section title="Árbol de evolución">
             <EvolutionEditor
-              skills={store.skills}
-              links={store.evoLinks}
-              onAdd={addEvolution}
-            />
+  skills={store.skills}
+  links={store.evoLinks}
+  onAdd={addEvo}
+/>
+
           </Section>
           <Section title={`Listado de habilidades (${store.skills.length})`}>
             <div className="divide-y">
