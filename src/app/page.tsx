@@ -2694,22 +2694,20 @@ const speciesStatOptions = React.useMemo<string[]>(
     const descripcion = String(fd.get("descripcion_multi") ?? "");
     const nivelMax = Math.max(1, parseInt(String(fd.get("nivelMax_multi") ?? "5")));
     const nivelPreview = Math.max(1, parseInt(String(fd.get("nivelPreview_multi") ?? "1")));
-    const objetivos = Array.from({ length: total })
-  .map((_, i) => ({
-    stat: String(fd.get(`multi_stat_${i}`) ?? "Fuerza"),
-    modo: String(fd.get(`multi_modo_${i}`) ?? "Puntos") as BonusMode,
-    cantidadPorNivel: Math.max(0, parseFloat(String(fd.get(`multi_cantidad_${i}`) ?? "0"))),
-  }))
+    const objetivos = Array.from({ length: total }).map((_, i) => ({
+  stat: String(fd.get(`multi_stat_${i}`) ?? "Fuerza"),
+  modo: String(fd.get(`multi_modo_${i}`) ?? "Puntos") as BonusMode,
+  cantidadPorNivel: Math.max(0, parseFloat(String(fd.get(`multi_cantidad_${i}`) ?? "0"))),
+  basePorcentaje: (() => {
+    const raw = fd.get(`multi_base_${i}`);
+    const n = raw == null || String(raw) === "" ? undefined : Math.max(0, parseFloat(String(raw)));
+    return Number.isFinite(n as number) ? n : undefined;
+  })(),
+}))
+// válidas si aportan puntos o % base
+.filter(t => t.cantidadPorNivel > 0 || (t.basePorcentaje ?? 0) > 0)
+.slice(0, 5);
 
-  .filter((t) => t.cantidadPorNivel > 0)
-  .slice(0, 5);
-
-
-    if (!nombre.trim()) return alert("Ponle un nombre a la bonificación.");
-    if (objetivos.length === 0) return alert("Añade al menos 1 objetivo.");
-    if (new Set(objetivos.map((o) => o.stat)).size !== objetivos.length) {
-      return alert("No repitas la misma estadística dentro de la misma bonificación.");
-    }
 
     const out: Bonus = {
       id: editingBonus?.id ?? uid("bonus"),
@@ -2738,23 +2736,26 @@ if (objetivosValidos.length === 0) {
 
 // Revisa duplicados por estadística (normalizada)
 const counts = new Map<string, number>();
+const k = (o: any) => `${norm(o.stat)}|${norm(o.modo)}`;
 for (const o of objetivosValidos) {
-  const key = norm(o.stat);
-  counts.set(key, (counts.get(key) ?? 0) + 1);
+  const kk = k(o);
+  counts.set(kk, (counts.get(kk) ?? 0) + 1);
 }
+
 
 // Detecta cuáles están duplicadas (para explicar mejor el error)
 const duplicadas: string[] = [];
-for (const [k, c] of counts) {
-  if (c > 1) duplicadas.push(k);
+for (const [kk, c] of counts) {
+  if (c > 1) duplicadas.push(kk);
 }
 
 if (duplicadas.length > 0) {
   return alert(
-    "Cada objetivo debe usar una estadística distinta.\n" +
+    "Cada objetivo debe usar una combinación distinta de estadística y modo.\n" +
     "Repetidas: " + duplicadas.join(", ")
   );
 }
+
 // --- Fin validación robusta ---
 
     setEditingBonusId(null);
