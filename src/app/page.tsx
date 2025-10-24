@@ -695,132 +695,224 @@ function MultiTargetsEditor({
   statsOptions,
 }: {
   namePrefix: string;
-  initialTargets: { stat: string; modo: BonusMode; cantidadPorNivel: number }[];
+  initialTargets: { stat: string; modo: BonusMode; cantidadPorNivel: number; basePorcentaje?: number }[];
   statsOptions: string[];
 }) {
+  // estado interno de las filas (máx 5)
   const [rows, setRows] = React.useState(
     Array.isArray(initialTargets) ? initialTargets.slice(0, 5) : []
   );
 
+  // si cambias de bonus a editar, sincronizamos
+  React.useEffect(() => {
+    setRows(Array.isArray(initialTargets) ? initialTargets.slice(0, 5) : []);
+  }, [initialTargets]);
+
   function addRow() {
     if (rows.length >= 5) return;
-    setRows((prev) => [
+    setRows(prev => [
       ...prev,
-      { stat: statsOptions[0] ?? "Fuerza", modo: "Puntos" as BonusMode, cantidadPorNivel: 1 },
+      {
+        stat: statsOptions[0] ?? "Fuerza",
+        modo: "Puntos" as BonusMode,
+        cantidadPorNivel: 1,
+        basePorcentaje: 0,
+      },
     ]);
   }
-  function updateRow(i: number, patch: Partial<{ stat: string; modo: BonusMode; cantidadPorNivel: number }>) {
-    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  }
-  function removeRow(i: number) {
-    setRows((prev) => prev.filter((_, idx) => idx !== i));
-  }
-  
-  // Preview por nivel (suma local): puntos = n * lvl; % = (n/100) * lvl
-  const [lvl, setLvl] = React.useState(1);
-  React.useEffect(() => {
-    const input = document.querySelector('input[name="nivelPreview_multi"]') as HTMLInputElement | null;
-    if (!input) return;
-    const onChange = () => setLvl(Math.max(1, parseInt(input.value || "1")));
-    input.addEventListener("input", onChange);
-    return () => input.removeEventListener("input", onChange);
-  }, []);
-  const formEl = document.getElementById("bonusMultiForm") as HTMLFormElement | null;
-  if (!formEl) {
-    console.warn("Formulario multi no está montado todavía.");
-    return null; // o reintenta más tarde, pero NO lances error
-  }
-  const fd = new FormData(formEl);
-                   // ← defines fd aquí
-  const total = parseInt(String(fd.get("multi_count_rows") ?? "0"));
 
+  function updateRow(
+    i: number,
+    patch: Partial<{
+      stat: string;
+      modo: BonusMode;
+      cantidadPorNivel: number;
+      basePorcentaje?: number;
+    }>
+  ) {
+    setRows(prev =>
+      prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r))
+    );
+  }
+
+  function removeRow(i: number) {
+    setRows(prev => prev.filter((_, idx) => idx !== i));
+  }
+
+  // preview de escalado por nivel (solo visual para el usuario)
+  const [lvlPreview, setLvlPreview] = React.useState(1);
+  React.useEffect(() => {
+    // enganchamos al input <Input name="nivelPreview_multi" ... />
+    const previewInput = document.querySelector(
+      'input[name="nivelPreview_multi"]'
+    ) as HTMLInputElement | null;
+    if (!previewInput) return;
+    const onChange = () => {
+      const n = parseInt(previewInput.value || "1");
+      setLvlPreview(isNaN(n) ? 1 : Math.max(1, n));
+    };
+    previewInput.addEventListener("input", onChange);
+    return () => {
+      previewInput.removeEventListener("input", onChange);
+    };
+  }, []);
 
   return (
     <div className="space-y-2">
+      {/* contador total de filas para el submit */}
       <input
-  type="hidden"
-  name={`${namePrefix}count_rows`}
-  value={rows.length}
-  readOnly
-/>
+        type="hidden"
+        name={`${namePrefix}count_rows`} // "multi_count_rows"
+        value={rows.length}
+        readOnly
+      />
+
       {rows.map((r, i) => (
-        <div key={i} className="grid grid-cols-12 gap-2 items-end">
+        <div
+          key={i}
+          className="grid grid-cols-12 gap-2 items-start border-b pb-2"
+        >
+          {/* Stat */}
           <div className="col-span-5">
             <Label>Stat</Label>
             <Select
-  value={String(r.stat)}                   
-  onValueChange={(v) => updateRow(i, { stat: v })}
->
-              <SelectTrigger><SelectValue /></SelectTrigger>
-<SelectContent className="max-h-60 overflow-auto">
-  {statsOptions.map((s) => (<SelectItem key={s} value={s}>{s}</SelectItem>))}
-</SelectContent>
-          <input type="hidden" name={`${namePrefix}stat_${i}`} value={String(r.stat)} />
+              value={String(r.stat)}
+              onValueChange={v => updateRow(i, { stat: v })}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-60 overflow-auto">
+                {statsOptions.map(s => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
-            <select name={`${namePrefix}stat_${i}`} defaultValue={String(r.stat)} className="hidden" />
+
+            {/* este hidden ES el que leerá el submit */}
+            <input
+              type="hidden"
+              name={`${namePrefix}stat_${i}`} // ej "multi_stat_0"
+              value={String(r.stat)}
+              readOnly
+            />
           </div>
 
+          {/* Modo */}
           <div className="col-span-3">
             <Label>Modo</Label>
-            <Select value={r.modo} onValueChange={(v) => updateRow(i, { modo: v as BonusMode })}>
-  <SelectTrigger><SelectValue/></SelectTrigger>
-  <SelectContent>
-    <SelectItem value="Puntos">Puntos</SelectItem>
-    <SelectItem value="Porcentaje">Porcentaje</SelectItem>
-  </SelectContent>
-</Select>
-<input type="hidden" name={`${namePrefix}modo_${i}`} value={r.modo} />     
-
-            <select name={`${namePrefix}modo_${i}`} defaultValue={r.modo} className="hidden" />
+            <Select
+              value={r.modo}
+              onValueChange={v =>
+                updateRow(i, { modo: v as BonusMode })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Puntos">Puntos</SelectItem>
+                <SelectItem value="Porcentaje">Porcentaje</SelectItem>
+              </SelectContent>
+            </Select>
+            <input
+              type="hidden"
+              name={`${namePrefix}modo_${i}`} // ej "multi_modo_0"
+              value={r.modo}
+              readOnly
+            />
           </div>
 
+          {/* Cantidad por nivel */}
           <div className="col-span-3">
             <Label>+ por nivel</Label>
             <Input
               type="number"
               min={0}
-              name={`${namePrefix}cantidad_${i}`}
-              defaultValue={r.cantidadPorNivel}
-              onChange={(e) => updateRow(i, { cantidadPorNivel: Math.max(0, parseFloat(e.target.value || "0")) })}
+              value={r.cantidadPorNivel}
+              onChange={e =>
+                updateRow(i, {
+                  cantidadPorNivel: Math.max(
+                    0,
+                    parseFloat(e.target.value || "0")
+                  ),
+                })
+              }
             />
-            {/* Preview local para esta fila */}
+            <input
+              type="hidden"
+              name={`${namePrefix}cantidad_${i}`} // ej "multi_cantidad_0"
+              value={r.cantidadPorNivel}
+              readOnly
+            />
+
             <div className="text-[11px] opacity-70 mt-1">
-              Preview nivel {lvl}:{" "}
+              Preview nivel {lvlPreview}:{" "}
               {r.modo === "Puntos"
-                ? `+${(r.cantidadPorNivel ?? 0) * lvl} puntos`
-                : `+${((r.cantidadPorNivel ?? 0) / 100) * lvl * 100}%`}
+                ? `+${(r.cantidadPorNivel ?? 0) * lvlPreview} puntos`
+                : `+${((r.cantidadPorNivel ?? 0) / 100) *
+                    lvlPreview *
+                    100}%`}
             </div>
           </div>
 
-          <div className="col-span-1">
-          
-{r.modo === "Porcentaje" && (
-  <div className="col-span-3">
-    <Label>% base</Label>
-    <Input
-      type="number"
-      min={0}
-      name={`${namePrefix}base_${i}`}
-      defaultValue={(r as any).basePorcentaje ?? 0}
-      onChange={(e) => updateRow(i, { ...(r as any), basePorcentaje: Math.max(0, parseFloat(e.target.value || "0")) } as any)}
-    />
-    <div className="text-[11px] opacity-70 mt-1">
-      Se suma siempre (además del % por nivel).
-    </div>
-  </div>
-)}
-    
-            <Button type="button" variant="destructive" onClick={() => removeRow(i)} className="w-full">
+          {/* % base (solo si modo = Porcentaje) + botón quitar */}
+          <div className="col-span-1 flex flex-col gap-2">
+            {r.modo === "Porcentaje" && (
+              <>
+                <Label>% base</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={r.basePorcentaje ?? 0}
+                  onChange={e =>
+                    updateRow(i, {
+                      basePorcentaje: Math.max(
+                        0,
+                        parseFloat(e.target.value || "0")
+                      ),
+                    })
+                  }
+                />
+                <input
+                  type="hidden"
+                  name={`${namePrefix}base_${i}`} // ej "multi_base_0"
+                  value={
+                    r.basePorcentaje != null
+                      ? r.basePorcentaje
+                      : ""
+                  }
+                  readOnly
+                />
+                <div className="text-[11px] opacity-70 mt-1">
+                  Se suma siempre además del % por nivel.
+                </div>
+              </>
+            )}
+
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => removeRow(i)}
+              className="w-full"
+            >
               Quitar
             </Button>
           </div>
         </div>
       ))}
-      <Button type="button" variant="outline" onClick={addRow} disabled={rows.length >= 5}>
+
+      <Button
+        type="button"
+        variant="outline"
+        onClick={addRow}
+        disabled={rows.length >= 5}
+      >
         Añadir objetivo (máx 5)
       </Button>
     </div>
-    
   );
 }
 
