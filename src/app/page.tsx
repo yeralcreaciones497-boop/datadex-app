@@ -762,7 +762,7 @@ function MultiTargetsEditor({
     <SelectItem value="Porcentaje">Porcentaje</SelectItem>
   </SelectContent>
 </Select>
-<input type="hidden" name={`${namePrefix}modo_${i}`} value={r.modo} />           {/* ✅ controlado */}
+<input type="hidden" name={`${namePrefix}modo_${i}`} value={r.modo} />     
 
             <select name={`${namePrefix}modo_${i}`} defaultValue={r.modo} className="hidden" />
           </div>
@@ -2451,10 +2451,37 @@ async function addEvo(from: string, to: string) {
 
 async function upsertBonus(b: Bonus) {
   const rowId = isUUID(b.id) ? b.id : crypto.randomUUID();
-  const { error } = await supabase.from("bonuses").upsert({ ...b, id: rowId });
+
+  const isMulti = Array.isArray(b.objetivos) && b.objetivos.length > 0;
+  const first = isMulti ? b.objetivos![0] : undefined;
+
+  const row: any = isMulti
+    ? {
+        id: rowId,
+        nombre: b.nombre,
+        descripcion: b.descripcion ?? "",
+        nivelMax: b.nivelMax,
+        objetivos: b.objetivos,               // JSONB con todas las filas
+        objetivo: b.objetivo ?? first?.stat ?? "Fuerza",
+        modo: b.modo ?? first?.modo ?? "Puntos",
+        cantidadPorNivel: b.cantidadPorNivel ?? first?.cantidadPorNivel ?? 0,
+      }
+    : {
+        id: rowId,
+        nombre: b.nombre,
+        descripcion: b.descripcion ?? "",
+        nivelMax: b.nivelMax,
+        objetivo: b.objetivo!,                // requerido por NOT NULL
+        modo: b.modo!,
+        cantidadPorNivel: b.cantidadPorNivel ?? 0,
+        objetivos: null,                      // o [] si tu columna no acepta null
+      };
+
+  const { error } = await supabase.from("bonuses").upsert(row);
   if (error) alert("Error guardando bonificación: " + error.message);
   await loadData();
 }
+
 
 
 async function deleteBonus(idToDelete: string) {
