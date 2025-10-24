@@ -726,7 +726,7 @@ function MultiTargetsEditor({
   const formEl = document.getElementById("bonusMultiForm") as HTMLFormElement | null;
   if (!formEl) {
     console.warn("Formulario multi no está montado todavía.");
-    return; // o reintenta más tarde, pero NO lances error
+    return null; // o reintenta más tarde, pero NO lances error
   }
   const fd = new FormData(formEl);
                    // ← defines fd aquí
