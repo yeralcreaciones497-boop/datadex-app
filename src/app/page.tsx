@@ -741,40 +741,29 @@ function MultiTargetsEditor({
           <div className="col-span-5">
             <Label>Stat</Label>
             <Select
-              defaultValue={String(r.stat)}
-              onValueChange={(v) => {
-                updateRow(i, { stat: v });
-                const el = document.querySelector(`select[name='${namePrefix}stat_${i}']`) as HTMLSelectElement | null;
-                if (el) el.value = v;
-                const total = parseInt(String(fd.get("multi_count_rows") ?? "0"));
-              }}
-            >
+  value={String(r.stat)}                   
+  onValueChange={(v) => updateRow(i, { stat: v })}
+>
               <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent className="max-h-60 overflow-auto">
-                {statsOptions.map((s) => (
-                  <SelectItem key={s} value={s}>{s}</SelectItem>
-                ))}
-              </SelectContent>
+<SelectContent className="max-h-60 overflow-auto">
+  {statsOptions.map((s) => (<SelectItem key={s} value={s}>{s}</SelectItem>))}
+</SelectContent>
+          <input type="hidden" name={`${namePrefix}stat_${i}`} value={String(r.stat)} />
             </Select>
             <select name={`${namePrefix}stat_${i}`} defaultValue={String(r.stat)} className="hidden" />
           </div>
 
           <div className="col-span-3">
             <Label>Modo</Label>
-            <Select
-              defaultValue={r.modo}
-              onValueChange={(v) => {
-                updateRow(i, { modo: v as BonusMode });
-                const el = document.querySelector(`select[name='${namePrefix}modo_${i}']`) as HTMLSelectElement | null;
-                if (el) el.value = v;
-              }}
-            >
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Puntos">Puntos</SelectItem>
-                <SelectItem value="Porcentaje">Porcentaje</SelectItem>
-              </SelectContent>
-            </Select>
+            <Select value={r.modo} onValueChange={(v) => updateRow(i, { modo: v as BonusMode })}>
+  <SelectTrigger><SelectValue/></SelectTrigger>
+  <SelectContent>
+    <SelectItem value="Puntos">Puntos</SelectItem>
+    <SelectItem value="Porcentaje">Porcentaje</SelectItem>
+  </SelectContent>
+</Select>
+<input type="hidden" name={`${namePrefix}modo_${i}`} value={r.modo} />           {/* ✅ controlado */}
+
             <select name={`${namePrefix}modo_${i}`} defaultValue={r.modo} className="hidden" />
           </div>
 
