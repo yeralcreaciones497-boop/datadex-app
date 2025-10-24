@@ -1997,18 +1997,16 @@ function CharacterSheetModal({
   }, [showEq]);
 
 	const principalId = character.especies?.[0] ?? character.especie;
-const byId = new Map(species.map(s => [s.id, s]));
-const principalName = principalId ? (byId.get(principalId)?.nombre ?? "") : "";
-const allSpeciesNames = (character.especies?.length ? character.especies : (principalId ? [principalId] : []))
-  .map(id => byId.get(id)?.nombre ?? id);
+	const byId = new Map(species.map(s => [s.id, s]));
+	const principalName = principalId ? (byId.get(principalId)?.nombre ?? "") : "";
+	const allSpeciesNames = (character.especies?.length ? character.especies : (principalId ? [principalId] : []))
+		.map(id => byId.get(id)?.nombre ?? id);
 
-// stats a mostrar en la tarjeta del personaje
-const statKeys: StatKey[] = Array.from(new Set([
+
+  const statKeys: StatKey[] = Array.from(new Set([
   ...DEFAULT_STATS as any,
   ...Object.keys(character.stats || {}),
 ]));
-
-
 	const effective: Array<{ key: string; value: number }> = statKeys.map(k => ({
 		key: k,
 		value: calcEffectiveStat(character, k as StatKey, bonuses, species)
@@ -2016,13 +2014,14 @@ const statKeys: StatKey[] = Array.from(new Set([
   
   // ===== Mezclar equivalencias (global + especies del personaje) =====
 
-const eqSpeciesList = (character.especies?.length ? character.especies : (principalId ? [principalId] : []))
-  .map(id => byId.get(id)?.equivalencias ?? {})
-  .filter(Boolean);
+const principalEq = principalId
+  ? (byId.get(principalId)?.equivalencias ?? {})
+  : {};
 
+// mezclamos: global primero, luego override de la especie principal
 const mergedEquivalencias = React.useMemo(
-  () => mergeEquivalencias(globalEquivalencias ?? {}, eqSpeciesList ?? []),
-  [globalEquivalencias, eqSpeciesList]
+  () => mergeEquivalencias(globalEquivalencias ?? {}, [principalEq]),
+  [globalEquivalencias, principalEq]
 );
 
 // Mapa stat -> valor efectivo
