@@ -358,6 +358,7 @@ export function calcSkillTagValue(tag: SkillTag, nivel: number) {
   return tag.maxPorcentaje != null ? Math.min(val, tag.maxPorcentaje) : val;
 }
 
+
 // ---- Daño por tramos ----
 export function calcDamageCadaN(d: DamageProfile, nivel: number) {
   const base = d.base || 0;
@@ -456,6 +457,7 @@ function mergeEquivalencias(
   }
   return out;
 }
+
 
 /** Construye mapa stat->valor efectivo (usa tu calcEffectiveStat). */
 function buildEffectiveMap(
@@ -1510,13 +1512,15 @@ function CharacterForm({
     onSubmit,
     bonuses,
     species,
-    extraStats
+    extraStats,
+    skills,
   }: {
     initial?: Character;
     onSubmit: (c: Character) => void;
     bonuses: Bonus[];
     species: Species[];
-    extraStats: string[];         
+    extraStats: string[]; 
+    skills: Skill[];         
   }) {
   const [nombre, setNombre] = useState(initial?.nombre ?? "");
   const [especie, setEspecie] = useState(initial?.especie ?? "");
@@ -1525,6 +1529,9 @@ function CharacterForm({
   const [nivel, setNivel] = useState<number>(initial?.nivel ?? 1);
   const [stats, setStats] = useState<Character["stats"]>(initial?.stats ?? {});
   const [bonos, setBonos] = useState<Character["bonos"]>(initial?.bonos ?? []);
+  const [habilidades, setHabilidades] = useState<Character["habilidades"]>(
+    initial?.habilidades ?? []
+  );
 
   useEffect(() => {
   if (!initial) {
@@ -1533,6 +1540,7 @@ function CharacterForm({
     setNivel(1);
     setStats({});
     setBonos([]);
+    setHabilidades([]);
     setEspeciesSel([]);
     return;
   }
@@ -1542,6 +1550,7 @@ function CharacterForm({
   setNivel(initial.nivel ?? 1);
   setStats(initial.stats ?? {});
   setBonos(initial.bonos ?? []);
+  setHabilidades(initial.habilidades ?? []);
 
   // Sincroniza especies: usa array 'especies' (o fallback al campo legacy 'especie')
   const next = (initial.especies && Array.isArray(initial.especies) && initial.especies.length
@@ -1581,6 +1590,37 @@ function CharacterForm({
   function setBonusLevel(bonusId: string, lvl: number) {
     setBonos(prev => prev.map(b => b.bonusId === bonusId ? { ...b, nivel: Math.min(Math.max(1, lvl), bonuses.find(x=>x.id===bonusId)?.nivelMax ?? lvl) } : b));
   }
+
+  function toggleSkill(skillId: string) {
+  setHabilidades(prev => {
+    const exist = prev.find(h => h.skillId === skillId);
+    if (exist) {
+      // Si ya la tiene, quitarla
+      return prev.filter(h => h.skillId !== skillId);
+    }
+    // Si no la tiene, agregarla con nivel inicial
+    const max = skills.find(s => s.id === skillId)?.nivelMax ?? 10;
+    const baseNivel = skills.find(s => s.id === skillId)?.nivel ?? 1;
+    return [...prev, { skillId, nivel: Math.min(baseNivel, max) }];
+  });
+}
+
+function setSkillLevel(skillId: string, lvl: number) {
+  setHabilidades(prev =>
+    prev.map(h =>
+      h.skillId === skillId
+        ? {
+            ...h,
+            nivel: Math.min(
+              Math.max(1, lvl),
+              skills.find(s => s.id === skillId)?.nivelMax ?? lvl
+            ),
+          }
+        : h
+    )
+  );
+}
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const _selectedSpecies = useMemo(() => species.find(s => s.nombre === (customSpec.trim() || especie)), [species, especie, customSpec]);
 
@@ -1617,17 +1657,18 @@ function CharacterForm({
 	};
 
 	const payload: Character = {
-		id: initial?.id ?? uid("char"),
-		nombre,
-		descripcion,
-		nivel,
-		stats: finalStats,
-		habilidades: initial?.habilidades ?? [],
-		bonos,
-		especies: ordered,
-		especie: principal,
-		avatarUrl: initial?.avatarUrl,
-	};
+  id: initial?.id ?? uid("char"),
+  nombre,
+  descripcion,
+  nivel,
+  stats: finalStats,
+  habilidades,
+  bonos,
+  especies: ordered,
+  especie: principal,
+  avatarUrl: initial?.avatarUrl,
+};
+
   
 
 	onSubmit(payload);
@@ -1639,15 +1680,15 @@ function CharacterForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Field label="Nombre"><Input value={nombre} onChange={(e) => setNombre(e.target.value)} /></Field>
-<Field label="Especies (máx 10)">
-	<SpeciesMultiSelectAccordion
-		allSpecies={speciesOptions}
-		value={especiesSel}
-		onChange={(ids)=>setEspeciesSel(uniqEspecies(ids).slice(0,10))}
-		title="Especies (máx 10)"
+          <Field label="Especies (máx 10)">
+	          <SpeciesMultiSelectAccordion
+	          	allSpecies={speciesOptions}
+		          value={especiesSel}
+		          onChange={(ids)=>setEspeciesSel(uniqEspecies(ids).slice(0,10))}
+		          title="Especies (máx 10)"
     
-	/>
-</Field>
+	          />
+          </Field>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -1704,6 +1745,62 @@ function CharacterForm({
           })}
         </div>
       </Section>
+          <Section title="Habilidades del personaje">
+  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+    {skills.length === 0 && (
+      <div className="text-sm opacity-70">
+        No hay habilidades definidas. Ve a la pestaña Habilidades.
+      </div>
+    )}
+
+    {skills.map((s) => {
+      const has = !!habilidades.find(h => h.skillId === s.id);
+      const current = habilidades.find(h => h.skillId === s.id);
+      const lvl = current?.nivel ?? 1;
+
+      return (
+        <Card
+          key={s.id}
+          className={`p-3 ${has ? "ring-1 ring-gray-300" : ""}`}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            {/* izquierda: toggle + info */}
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={has}
+                onCheckedChange={() => toggleSkill(s.id)}
+              />
+              <div>
+                <div className="font-medium truncate">{s.nombre}</div>
+                <div className="text-xs opacity-70">
+                  Clase: {s.clase} · Tier {s.tier} · Máx {s.nivelMax}
+                </div>
+              </div>
+            </div>
+
+            {/* derecha: nivel si está activa */}
+            {has && (
+              <div className="flex items-center gap-2">
+                <Label className="text-xs">Nivel</Label>
+                <Input
+                  inputMode="numeric"
+                  type="number"
+                  className="w-16 h-8"
+                  min={1}
+                  max={s.nivelMax}
+                  value={lvl}
+                  onChange={(e) =>
+                    setSkillLevel(s.id, parseInt(e.target.value || "1"))
+                  }
+                />
+              </div>
+            )}
+          </div>
+        </Card>
+      );
+    })}
+  </div>
+</Section>
 
       <div className="flex justify-end gap-2"><Button type="submit" className="gap-2"><Save className="w-4 h-4"/>Guardar personaje</Button></div>
     </form>
@@ -2799,10 +2896,17 @@ END MOVED */}
   
         {/* Editor dinámico (máx 5 filas) */}
           <MultiTargetsEditor
-         namePrefix="multi_"
-         initialTargets={(editingBonus?.objetivos ?? []) as any}
-         statsOptions={Array.from(new Set([...DEFAULT_STATS as any]))}
+  namePrefix="multi_"
+  initialTargets={(editingBonus?.objetivos ?? []) as any}
+  statsOptions={Array.from(
+    new Set([
+      ...DEFAULT_STATS as any,
+      ...(store.extraStats ?? [])
+    ])
+  )}
 />
+
+
   
 
 
@@ -2848,15 +2952,17 @@ END MOVED */}
         <TabsContent value="characters" className="mt-4 space-y-3">
           <Section title={editingChar ? "Editar personaje" : "Nuevo personaje"} actions={editingChar && <Button variant="outline" onClick={()=>setEditingCharId(null)}>Cancelar</Button>}>
            <CharacterForm
-              initial={editingChar ?? undefined}
-              onSubmit={(updatedCharacter) => {
-                  setEditingCharId(null);
-                  upsertCharacter(updatedCharacter);     
-              }}
-              bonuses={store.bonuses}
-              species={store.species}
-              extraStats={store.extraStats}   
-            />
+  initial={editingChar ?? undefined}
+  onSubmit={(updatedCharacter) => {
+    setEditingCharId(null);
+    upsertCharacter(updatedCharacter);
+  }}
+  bonuses={store.bonuses}
+  species={store.species}
+  extraStats={store.extraStats}
+  skills={store.skills}
+/>
+
           </Section>
           <Section title={`Listado de personajes (${store.characters.length})`}>
             <div className="divide-y">
