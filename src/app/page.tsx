@@ -1997,15 +1997,17 @@ function CharacterSheetModal({
   }, [showEq]);
 
 	const principalId = character.especies?.[0] ?? character.especie;
-	const byId = new Map(species.map(s => [s.id, s]));
-	const principalName = principalId ? (byId.get(principalId)?.nombre ?? "") : "";
-	const allSpeciesNames = (character.especies?.length ? character.especies : (principalId ? [principalId] : []))
-		.map(id => byId.get(id)?.nombre ?? id);
+const byId = new Map(species.map(s => [s.id, s]));
+const principalName = principalId ? (byId.get(principalId)?.nombre ?? "") : "";
+const allSpeciesNames = (character.especies?.length ? character.especies : (principalId ? [principalId] : []))
+  .map(id => byId.get(id)?.nombre ?? id);
 
-	const statKeys: StatKey[] = Array.from(new Set([
-		...Object.keys(character.stats || {}),
-		...DEFAULT_STATS as any
-	])) as any;
+// stats a mostrar en la tarjeta del personaje
+const statKeys: StatKey[] = Array.from(new Set([
+  ...DEFAULT_STATS as any,
+  ...Object.keys(character.stats || {}),
+]));
+
 
 	const effective: Array<{ key: string; value: number }> = statKeys.map(k => ({
 		key: k,
