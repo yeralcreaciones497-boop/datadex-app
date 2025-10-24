@@ -737,7 +737,12 @@ function MultiTargetsEditor({
 
   return (
     <div className="space-y-2">
-      <input type="hidden" name="multi_count_rows" value={rows.length} />
+      <input
+  type="hidden"
+  name={`${namePrefix}count_rows`}
+  value={rows.length}
+  readOnly
+/>
       {rows.map((r, i) => (
         <div key={i} className="grid grid-cols-12 gap-2 items-end">
           <div className="col-span-5">
