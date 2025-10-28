@@ -90,6 +90,9 @@ type Character = {
   descripcion: string;
   nivel: number;
 
+  experiencia?: number;            
+  experienciaNecesaria?: number;
+
   stats: Record<StatKey, { valor: number; rango: string }>;
   habilidades: { skillId: string; nivel: number }[];
   bonos: { bonusId: string; nivel: number }[];
@@ -224,6 +227,70 @@ function computeMind(intel: number, sab: number): number {
   const i = Math.max(0, intel || 0); const s = Math.max(0, sab || 0);
   return Math.round(Math.sqrt(i * s));
 }
+
+/** Curva total de XP acumulada necesaria para alcanzar un nivel dado */
+function xpTotalParaNivel(n: number): number {
+  const lvl = Math.max(1, Math.floor(n || 1));
+  return 100 * lvl * lvl * lvl; // 100 * n^3
+}
+
+/** Cuánta XP necesitas entre nivel n y n+1 */
+function xpToNext(n: number): number {
+  const base = xpTotalParaNivel(n);
+  const next = xpTotalParaNivel(n + 1);
+  return next - base;
+}
+
+/** Dado el personaje, devuelve:
+ *  - xpActual (asumiendo 0 si falta)
+ *  - xpNecesaria (para subir al siguiente nivel)
+ *  - progreso (0-1)
+ */
+function getXpInfo(c: Character) {
+  const lvl = Math.max(1, c.nivel || 1);
+  const xpActual = Math.max(0, c.experiencia ?? 0);
+  const xpNecesaria = c.experienciaNecesaria ?? xpToNext(lvl);
+
+  const pct = xpNecesaria > 0 ? Math.min(1, xpActual / xpNecesaria) : 1;
+  return {
+    nivel: lvl,
+    xpActual,
+    xpNecesaria,
+    progreso: pct, // 0 a 1
+  };
+}
+
+/** Aplica ganancia de XP y maneja level up automático.
+ * Devuelve una copia del personaje actualizado.
+ */
+function addXpToCharacter(
+  c: Character,
+  gainedXp: number
+): Character {
+  // XP actual + ganada
+  let xp = Math.max(0, c.experiencia ?? 0) + Math.max(0, gainedXp);
+
+  // Nivel actual
+  let lvl = Math.max(1, c.nivel || 1);
+
+  // XP necesaria para subir (usa la función xpToNext que ya definiste)
+  let need = c.experienciaNecesaria ?? xpToNext(lvl);
+
+  // Loop por si gana suficiente XP para varios niveles
+  while (xp >= need) {
+    xp -= need;       // Resta la XP usada
+    lvl += 1;         // Sube un nivel
+    need = xpToNext(lvl); // Calcula el nuevo umbral
+  }
+
+  return {
+    ...c,
+    nivel: lvl,
+    experiencia: xp,
+    experienciaNecesaria: need,
+  };
+}
+
 
 /** Suma bonificaciones (multi-objetivo o legacy) sobre un stat */
 function sumBonusesForStat(
